@@ -1,0 +1,28 @@
+[package]
+name = "lb-proxy-uring"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "io_uring reverse proxy: work-stealing and thread-per-core topologies from one binary"
+
+[[bin]]
+name = "lb-proxy-uring"
+path = "src/main.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+lb-uring = { path = "../uring" }
+
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+bytes.workspace = true
+libc = "0.2"
+num_cpus.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tikv-jemallocator.workspace = true

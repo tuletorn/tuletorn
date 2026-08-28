@@ -1,0 +1,6 @@
+candidate,conns,rps,p50_ms,p99_ms,p999_ms,success,errors,proxy_cpu_pct,peak_rss_mb,origin_cpu_pct,load_cpu_pct,bottleneck
+hyper-epoll-ws,64,3088.6,21.093,27.497,36.48,46275,64,197.7,31.9,99.7,91,proxy
+uring-ws-sharedring,64,524.3,114.889,254.023,273.28,7802,64,129.6,21.4,21.1,42,unsaturated
+uring-ws-perworkerring,64,721.4,86.767,166.234,181.081,10759,64,147.6,20.9,28.4,52,unsaturated
+uring-tpc-sharenothing,64,1784.6,35.622,49.123,55.102,26709,64,200.0,21.1,59.7,97,proxy
+uring-tpc-balanced,64,1794.4,29.774,57.05,65.847,26858,64,200.0,21.1,58.8,96,proxy

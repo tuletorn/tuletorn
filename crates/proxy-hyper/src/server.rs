@@ -16,13 +16,14 @@
 //! up as p99 jitter at the connection counts in plan §8.
 
 use crate::client::{BoxedBody, UpstreamClient, empty_body};
-use http::uri::{Authority, PathAndQuery, Scheme};
-use http::{Request, Response, StatusCode, Uri, Version, header};
+use http::uri::Authority;
+use http::{Request, Response, StatusCode, header};
 use http_body_util::BodyExt;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoConnBuilder;
-use lb_core::{SharedRouteTable, proxy};
+use lb_core::forward::{self, UpstreamProtocol};
+use lb_core::SharedRouteTable;
 use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -230,6 +231,10 @@ fn tune_stream(stream: &TcpStream) {
 }
 
 /// Handle one request end to end.
+///
+/// The routing, backend choice and header hygiene all live in
+/// [`lb_core::forward::prepare`], which every candidate calls, so the only
+/// thing this function contributes is Hyper's own body and pool handling.
 async fn handle_request(
     req: Request<hyper::body::Incoming>,
     peer_ip: IpAddr,
@@ -237,113 +242,29 @@ async fn handle_request(
     upstream: &UpstreamClient,
     config: &ServerConfig,
 ) -> Result<Response<BoxedBody>, hyper::Error> {
-    // HTTP/2 carries the authority in :authority, HTTP/1.1 in Host.
-    let host = req.uri().host().or_else(|| {
-        req.headers()
-            .get(header::HOST)
-            .and_then(|h| h.to_str().ok())
-    });
-    let path = req.uri().path();
-
-    // 1. Wait-free route lookup.
-    let table = routes.load();
-    let Some(action) = table.lookup(host, path) else {
-        return Ok(not_found());
-    };
-
-    // 2. Pick a backend.
-    let target = action.target_group.select();
-    let Some(authority) = target.authority() else {
-        error!(address = %target.address, "backend address is not a valid URI authority");
-        return Ok(status_only(StatusCode::BAD_GATEWAY));
-    };
-
-    // 3. Build the upstream URI.
-    //
-    // No rewrite is the common case, and there the incoming `PathAndQuery` is
-    // reused as-is: `Uri` is `Bytes`-backed, so this clone is a refcount bump
-    // rather than a string format + reparse.
     let (mut parts, body) = req.into_parts();
-    let path_and_query = if action.filters.rewrites_path() {
-        let rewritten = action.filters.apply_url_rewrite(parts.uri.path());
-        let with_query = match parts.uri.query() {
-            Some(q) => {
-                let mut s = String::with_capacity(rewritten.len() + q.len() + 1);
-                s.push_str(&rewritten);
-                s.push('?');
-                s.push_str(q);
-                s
-            }
-            None => rewritten.into_owned(),
-        };
-        match PathAndQuery::try_from(with_query) {
-            Ok(pq) => pq,
-            Err(err) => {
-                error!(%err, "rewritten path is not a valid URI path");
-                return Ok(status_only(StatusCode::INTERNAL_SERVER_ERROR));
-            }
-        }
+    let protocol = if upstream.is_http2_upstream() {
+        UpstreamProtocol::Http2
     } else {
-        parts
-            .uri
-            .path_and_query()
-            .cloned()
-            .unwrap_or_else(|| PathAndQuery::from_static("/"))
+        UpstreamProtocol::Http1
     };
 
-    let mut uri_parts = http::uri::Parts::default();
-    uri_parts.scheme = Some(Scheme::HTTP);
-    uri_parts.authority = Some(authority.clone());
-    uri_parts.path_and_query = Some(path_and_query);
-    let upstream_uri = match Uri::from_parts(uri_parts) {
-        Ok(uri) => uri,
-        Err(err) => {
-            error!(%err, "failed to assemble upstream URI");
-            return Ok(status_only(StatusCode::INTERNAL_SERVER_ERROR));
-        }
+    let (filters, target_addr) = match forward::prepare(
+        &mut parts,
+        peer_ip,
+        routes,
+        config.forwarded_headers,
+        protocol,
+    ) {
+        forward::Prepared::Forward { filters, address } => (filters, address),
+        forward::Prepared::Reject(status) => return Ok(status_only(status)),
     };
 
-    // 4. Header hygiene. A proxy must not forward hop-by-hop headers
-    //    (RFC 9110 §7.6.1); Traefik strips them, so we must too or the
-    //    comparison is not like-for-like.
-    proxy::strip_hop_by_hop(&mut parts.headers);
-    if config.forwarded_headers {
-        proxy::append_forwarded_for(&mut parts.headers, peer_ip);
-        proxy::set_forwarded_proto(&mut parts.headers, "http");
-    }
-    action.filters.apply_request_headers(&mut parts.headers);
-
-    // The downstream protocol version must not leak upstream: an h2c client
-    // would otherwise force an HTTP/2 request onto an HTTP/1.1 upstream pool
-    // and get `UserUnsupportedVersion` back as a 502.
-    parts.version = if upstream.is_http2_upstream() {
-        Version::HTTP_2
-    } else {
-        Version::HTTP_11
-    };
-    // HTTP/2 has no Host header; HTTP/1.1 requires one matching the authority.
-    if parts.version == Version::HTTP_11 {
-        if let Ok(value) = header::HeaderValue::from_str(authority.as_str()) {
-            parts.headers.insert(header::HOST, value);
-        }
-    } else {
-        parts.headers.remove(header::HOST);
-    }
-    parts.uri = upstream_uri;
-
-    // Release the route table guard before awaiting: holding it across the
-    // upstream round trip would pin an old table for the whole request and
-    // delay reclamation during a churn burst.
-    let filters = action.filters.clone();
-    let target_addr = target.address.clone();
-    drop(table);
-
-    // 5. Forward. Bodies stream through untouched.
+    // Bodies stream through untouched.
     let out_req = Request::from_parts(parts, body.boxed());
     match upstream.forward(out_req).await {
         Ok(mut resp) => {
-            proxy::strip_hop_by_hop(resp.headers_mut());
-            filters.apply_response_headers(resp.headers_mut());
+            forward::finish_response(resp.headers_mut(), &filters);
             Ok(resp)
         }
         Err(err) => {
@@ -351,15 +272,6 @@ async fn handle_request(
             Ok(status_only(StatusCode::BAD_GATEWAY))
         }
     }
-}
-
-fn not_found() -> Response<BoxedBody> {
-    Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .header(header::CONTENT_TYPE, "text/plain")
-        .header(header::CONTENT_LENGTH, "0")
-        .body(empty_body())
-        .expect("static response is valid")
 }
 
 fn status_only(status: StatusCode) -> Response<BoxedBody> {

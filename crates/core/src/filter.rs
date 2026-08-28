@@ -60,6 +60,21 @@ impl Compiled {
         }
     }
 
+    /// The header name this instruction acts on.
+    fn name(&self) -> &HeaderName {
+        match self {
+            Self::Set(n, _) | Self::Add(n, _) | Self::Remove(n) => n,
+        }
+    }
+
+    /// Whether an incoming header of this name must not be copied through.
+    ///
+    /// `Set` replaces, `Remove` drops; `Add` appends alongside the original
+    /// and so leaves it in place.
+    fn suppresses_original(&self) -> bool {
+        matches!(self, Self::Set(_, _) | Self::Remove(_))
+    }
+
     #[inline]
     fn apply(&self, headers: &mut HeaderMap) {
         match self {
@@ -73,6 +88,21 @@ impl Compiled {
                 headers.remove(n);
             }
         }
+    }
+}
+
+/// Emit `Set`/`Add` instructions as wire header lines. `Remove` contributes
+/// nothing: it is honoured by suppressing the original instead.
+fn write_lines(compiled: &[Compiled], out: &mut Vec<u8>) {
+    for c in compiled {
+        let (name, value) = match c {
+            Compiled::Set(n, v) | Compiled::Add(n, v) => (n, v),
+            Compiled::Remove(_) => continue,
+        };
+        out.extend_from_slice(name.as_str().as_bytes());
+        out.extend_from_slice(b": ");
+        out.extend_from_slice(value.as_bytes());
+        out.extend_from_slice(b"\r\n");
     }
 }
 
@@ -203,6 +233,48 @@ impl RouteFilters {
                 None => Cow::Borrowed(path),
             },
         }
+    }
+
+    /// Whether a request header arriving with this name must be dropped
+    /// rather than copied to the upstream.
+    ///
+    /// Data planes that rewrite headers as bytes cannot use
+    /// [`Self::apply_request_headers`], which needs a `HeaderMap`. They copy
+    /// the incoming head through, skipping names this reports, and then append
+    /// [`Self::write_request_headers`].
+    #[must_use]
+    pub fn request_suppresses(&self, name: &str) -> bool {
+        self.inner.as_ref().is_some_and(|p| {
+            p.request_headers
+                .iter()
+                .any(|c| c.suppresses_original() && c.name().as_str().eq_ignore_ascii_case(name))
+        })
+    }
+
+    /// Response-side counterpart of [`Self::request_suppresses`].
+    #[must_use]
+    pub fn response_suppresses(&self, name: &str) -> bool {
+        self.inner.as_ref().is_some_and(|p| {
+            p.response_headers
+                .iter()
+                .any(|c| c.suppresses_original() && c.name().as_str().eq_ignore_ascii_case(name))
+        })
+    }
+
+    /// Append this filter set's request header lines, CRLF-terminated.
+    pub fn write_request_headers(&self, out: &mut Vec<u8>) {
+        let Some(pipeline) = self.inner.as_ref() else {
+            return;
+        };
+        write_lines(&pipeline.request_headers, out);
+    }
+
+    /// Append this filter set's response header lines, CRLF-terminated.
+    pub fn write_response_headers(&self, out: &mut Vec<u8>) {
+        let Some(pipeline) = self.inner.as_ref() else {
+            return;
+        };
+        write_lines(&pipeline.response_headers, out);
     }
 }
 

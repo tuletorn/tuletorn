@@ -1,0 +1,24 @@
+[package]
+name = "lb-uring"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "io_uring reactor exposing poll-based streams, for the lb runtime comparison"
+
+[lib]
+name = "lb_uring"
+path = "src/lib.rs"
+
+[dependencies]
+io-uring = "0.7.14"
+libc = "0.2"
+slab = "0.4"
+parking_lot.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "macros", "sync", "time"] }
+tower.workspace = true
+http.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+socket2.workspace = true
+tracing.workspace = true
+anyhow.workspace = true

@@ -1296,9 +1296,9 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hyper"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72"
+checksum = "27b501faa50e7a26c3d3560ca625132f4078a17771f4810baf70475ae48cbe43"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -1399,6 +1399,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "595a0399f411a508feb2ec1e970a4a30c249351e30208960d58298de8660b0e5"
 dependencies = [
  "bitflags 1.3.2",
+ "libc",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d64d8ca234d152948ceaede1f419b6a83983a5ecccaac05fb337a809c96d3aa6"
+dependencies = [
+ "bitflags 2.13.1",
+ "cfg-if",
  "libc",
 ]
 
@@ -1822,6 +1833,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "lb-uring"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "http",
+ "hyper",
+ "hyper-util",
+ "io-uring 0.7.14",
+ "libc",
+ "parking_lot",
+ "slab",
+ "socket2 0.6.5",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,7 +2015,7 @@ dependencies = [
  "auto-const-array",
  "bytes",
  "fxhash",
- "io-uring",
+ "io-uring 0.6.4",
  "libc",
  "memchr",
  "mio 0.8.11",

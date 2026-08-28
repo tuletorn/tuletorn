@@ -16,11 +16,13 @@
 //! | [`gateway`] | Kubernetes Gateway API reconciler (feature `k8s`) |
 //! | [`alloc`] | Allocator name registry; binaries declare their own allocator |
 //! | [`proxy`] | Hop-by-hop header hygiene and forwarding headers |
+//! | [`forward`] | The shared per-request preparation every candidate runs |
 
 pub mod alloc;
 pub mod config;
 pub mod cycles;
 pub mod filter;
+pub mod forward;
 pub mod hash;
 pub mod proxy;
 pub mod route_table;
@@ -34,6 +36,7 @@ pub use alloc::allocator_name;
 pub use config::{BackendEntry, PathType, RouteConfig, RouteEntry};
 pub use cycles::Calibration;
 pub use filter::{HeaderModifier, RouteFilters, UrlRewrite};
+pub use forward::{Prepared, UpstreamProtocol, finish_response, prepare};
 pub use hash::{FxHashMap, FxHasher};
 pub use proxy::{FORWARDED_FOR, HOP_BY_HOP, connection_nominated, strip_hop_by_hop};
 pub use route_table::{

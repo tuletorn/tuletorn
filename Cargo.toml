@@ -5,12 +5,15 @@ members = [
     "crates/proxy-hyper",
     "crates/proxy-pingora",
     "crates/proxy-monoio",
+    "crates/uring",
+    "crates/proxy-uring",
+    "crates/proxy-native",
     "crates/bench",
 ]
 
 [workspace.dependencies]
 tokio = { version = "1.53.1", features = ["full", "parking_lot"] }
-hyper = { version = "1.11.0", features = ["server", "client", "http1", "http2"] }
+hyper = { version = "1.11.1", features = ["server", "client", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server-auto", "client-legacy", "tokio", "http1", "http2"] }
 http-body-util = "0.1.5"
 bytes = "1.12.1"

@@ -1,0 +1,2 @@
+[2m2026-08-28T17:57:10.290413Z[0m [32m INFO[0m [2mlb_proxy_hyper[0m[2m:[0m starting lb-proxy-hyper [3mallocator[0m[2m=[0m"jemalloc" [3mlisten[0m[2m=[0m0.0.0.0:8080 [3mmode[0m[2m=[0mstandalone [3mworkers[0m[2m=[0m2
+[2m2026-08-28T17:57:10.290766Z[0m [32m INFO[0m [2mlb_proxy_hyper::server[0m[2m:[0m ProxyHyper listening (SO_REUSEPORT) [3maddr[0m[2m=[0m0.0.0.0:8080 [3mworkers[0m[2m=[0m2

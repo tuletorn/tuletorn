@@ -1,0 +1,880 @@
+<title>Beating Hyper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #eef1f3;
+    --surface: #ffffff;
+    --surface-sunk: #e6eaed;
+    --ink: #101619;
+    --ink-soft: #3d4a52;
+    --muted: #64737d;
+    --rule: #d2d9de;
+    --rule-strong: #b6c0c7;
+
+    --accent: #a4551f;
+    --accent-soft: #f0e2d6;
+
+    --baseline: #46545e;
+    --uring-good: #a4551f;
+    --uring-bad: #c85a45;
+
+    --pos: #2c6b4a;
+    --neg: #c85a45;
+
+    --measure: 68ch;
+    --wide: 1080px;
+
+    --step--1: 0.82rem;
+    --step-0: 1.0rem;
+    --step-1: 1.22rem;
+    --step-2: 1.6rem;
+    --step-3: 2.15rem;
+    --step-4: 3.0rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101417;
+      --surface: #171c21;
+      --surface-sunk: #1d242a;
+      --ink: #e8edf0;
+      --ink-soft: #bcc7ce;
+      --muted: #8a99a3;
+      --rule: #2a333a;
+      --rule-strong: #3d4952;
+
+      --accent: #e0904d;
+      --accent-soft: #2e2319;
+
+      --baseline: #93a3ae;
+      --uring-good: #e0904d;
+      --uring-bad: #d9705e;
+
+      --pos: #6fbd92;
+      --neg: #d9705e;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101417;
+    --surface: #171c21;
+    --surface-sunk: #1d242a;
+    --ink: #e8edf0;
+    --ink-soft: #bcc7ce;
+    --muted: #8a99a3;
+    --rule: #2a333a;
+    --rule-strong: #3d4952;
+
+    --accent: #e0904d;
+    --accent-soft: #2e2319;
+
+    --baseline: #93a3ae;
+    --uring-good: #e0904d;
+    --uring-bad: #d9705e;
+
+    --pos: #6fbd92;
+    --neg: #d9705e;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: var(--step-0);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  .col {
+    max-width: var(--measure);
+  }
+
+  h1, h2, h3, .label, .stat-num, table, .pill {
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  h1 {
+    font-size: var(--step-4);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.02;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  h2 {
+    font-size: var(--step-2);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+    text-wrap: balance;
+    margin: 0 0 4px;
+  }
+
+  h3 {
+    font-size: var(--step-1);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 2px;
+  }
+
+  p { margin: 0; }
+
+  a { color: var(--accent); text-underline-offset: 3px; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+  }
+
+  code {
+    background: var(--surface-sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+  }
+
+  .label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---- masthead ---- */
+
+  header.masthead {
+    border-bottom: 1px solid var(--rule-strong);
+    padding: 72px 0 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  .eyebrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: baseline;
+  }
+
+  .deck {
+    font-size: var(--step-1);
+    color: var(--ink-soft);
+    max-width: 58ch;
+    text-wrap: pretty;
+  }
+
+  /* ---- verdict ---- */
+
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 26px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 40px 0 0;
+  }
+
+  .verdict p { max-width: var(--measure); }
+
+  .findings {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 14px;
+  }
+
+  .findings li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .findings .mark {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 3px 7px;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  /* ---- sections ---- */
+
+  section {
+    padding: 56px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .sec-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+  }
+
+  /* ---- tables ---- */
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th, td {
+    text-align: right;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  th {
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-sunk);
+    position: sticky;
+    top: 0;
+  }
+
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.name {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.8rem;
+  }
+
+  tr.is-baseline td { background: var(--accent-soft); }
+  tr.is-baseline td.name { font-weight: 600; }
+
+  .delta-pos { color: var(--pos); }
+  .delta-neg { color: var(--neg); }
+
+  caption {
+    caption-side: bottom;
+    text-align: left;
+    padding: 12px 14px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: "Source Serif 4", serif;
+  }
+
+  /* ---- bar chart ---- */
+
+  .chart {
+    display: grid;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 24px;
+  }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 210px) 1fr auto;
+    gap: 14px;
+    align-items: center;
+  }
+
+  .bar-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+    text-align: right;
+  }
+
+  .bar-track {
+    background: var(--surface-sunk);
+    height: 22px;
+    position: relative;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: var(--uring-good);
+  }
+
+  .bar-fill.baseline { background: var(--baseline); }
+  .bar-fill.bad { background: var(--uring-bad); }
+
+  .bar-val {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 8ch;
+    text-align: right;
+  }
+
+  /* ---- figure ---- */
+
+  figure {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  figure svg { max-width: 100%; height: auto; display: block; }
+
+  figcaption {
+    font-size: 0.86rem;
+    color: var(--muted);
+    max-width: 72ch;
+  }
+
+  /* ---- mechanism grid ---- */
+
+  .mech {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+
+  .mech > div {
+    background: var(--surface);
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 20px;
+  }
+
+  .mech .m-head {
+    grid-column: 1 / -1;
+    font-family: Archivo, sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  .mech .m-arc, .mech .m-mine {
+    font-size: 0.86rem;
+    color: var(--ink-soft);
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .mech .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .tag-arc { background: var(--accent-soft); color: var(--accent); }
+  .tag-mine { background: var(--surface-sunk); color: var(--muted); }
+
+  /* ---- callout ---- */
+
+  .callout {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--muted);
+    background: var(--surface);
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .callout.warn { border-left-color: var(--neg); }
+
+  .callout p { max-width: var(--measure); font-size: 0.94rem; }
+
+  ul.plain {
+    margin: 0;
+    padding-left: 1.15em;
+    display: grid;
+    gap: 8px;
+    max-width: var(--measure);
+    font-size: 0.94rem;
+  }
+
+  footer {
+    margin-top: 72px;
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 22px;
+    font-size: 0.84rem;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: var(--measure);
+  }
+
+  @media (max-width: 620px) {
+    :root { --step-4: 2.2rem; --step-3: 1.7rem; --step-2: 1.35rem; }
+    header.masthead { padding-top: 44px; }
+    .bar-row { grid-template-columns: 1fr; gap: 4px; }
+    .bar-label { text-align: left; }
+    .mech > div { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span class="label">Measured on an 8-core kernel-7.0 host</span>
+      <span class="label" style="color:var(--accent)">28 Aug 2026</span>
+    </div>
+    <h1>Beating&nbsp;Hyper</h1>
+    <p class="deck">Four io_uring topologies under Hyper all lost to plain Tokio&nbsp;+&nbsp;epoll. Batching the submissions got one of them ahead by 7%. Throwing Hyper out of the data plane entirely got to <strong>2.2&ndash;2.9&times;</strong>. This is the route, and what each step was actually worth.</p>
+  </header>
+
+  <div class="verdict">
+    <span class="label">Result</span>
+    <p>On the same two cores, with the origin and load generator held clear of saturation, a completion-native io_uring proxy runs <strong>2.2&times; to 2.9&times;</strong> the throughput of Hyper&nbsp;+&nbsp;epoll, with a p99 seven times lower at high concurrency.</p>
+    <ul class="findings">
+      <li>
+        <span class="mark">−16%</span>
+        <span>Porting io_uring under Hyper <em>loses</em>. The best of four topologies reached 84% of baseline; the worst reached 30%.</span>
+      </li>
+      <li>
+        <span class="mark">+58%</span>
+        <span>Batching submissions &mdash; one <code>io_uring_enter</code> per scheduler batch instead of one per operation &mdash; was worth up to 58% on its own, and put the best topology 7% ahead of Hyper.</span>
+      </li>
+      <li>
+        <span class="mark">292%</span>
+        <span>Removing Hyper from the data plane and driving hand-written state machines directly off completions reached <strong>292%</strong> of baseline at c=1000, and won at every payload size from 1&nbsp;KiB to 1&nbsp;MiB.</span>
+      </li>
+    </ul>
+  </div>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Headline</span>
+      <h2>Completion-native versus Hyper, two cores each</h2>
+    </div>
+
+    <div class="chart">
+      <span class="label" style="margin-bottom:6px">Requests/sec, HTTP/1.1 keep-alive, 2 proxy cores &mdash; proxy saturated at 199.8%</span>
+      <div class="bar-row">
+        <span class="bar-label">native &middot; c=256</span>
+        <span class="bar-track"><span class="bar-fill" style="width:100%"></span></span>
+        <span class="bar-val">107,356</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">native &middot; c=1000</span>
+        <span class="bar-track"><span class="bar-fill" style="width:89.4%"></span></span>
+        <span class="bar-val">95,967</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">native &middot; c=64</span>
+        <span class="bar-track"><span class="bar-fill" style="width:89.9%"></span></span>
+        <span class="bar-val">96,465</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">hyper &middot; c=64</span>
+        <span class="bar-track"><span class="bar-fill baseline" style="width:40.8%"></span></span>
+        <span class="bar-val">43,764</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">hyper &middot; c=256</span>
+        <span class="bar-track"><span class="bar-fill baseline" style="width:35.6%"></span></span>
+        <span class="bar-val">38,196</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">hyper &middot; c=1000</span>
+        <span class="bar-track"><span class="bar-fill baseline" style="width:30.6%"></span></span>
+        <span class="bar-val">32,851</span>
+      </div>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <caption>20s runs after 5s warmup. Origin on two cores, load generator on four, so neither was ever the limiter.</caption>
+        <thead>
+          <tr><th>Conns</th><th>hyper rps</th><th>native rps</th><th>ratio</th><th>hyper p99</th><th>native p99</th><th>native RSS</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>16</td><td>39,982</td><td>72,337</td><td class="delta-pos">181%</td><td>0.88 ms</td><td>0.44 ms</td><td>267 MB</td></tr>
+          <tr><td>64</td><td>43,764</td><td>96,465</td><td class="delta-pos">220%</td><td>2.66 ms</td><td>1.10 ms</td><td>267 MB</td></tr>
+          <tr><td>256</td><td>38,196</td><td>107,356</td><td class="delta-pos">281%</td><td>12.13 ms</td><td>3.88 ms</td><td>268 MB</td></tr>
+          <tr><td>1000</td><td>32,851</td><td>95,967</td><td class="delta-pos">292%</td><td>113.0 ms</td><td>16.19 ms</td><td>268 MB</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">The memory column is the honest cost. The native build pre-registers its buffer pool, so RSS is a flat 267&nbsp;MB whether it is serving 16 connections or 1000, where Hyper climbs from 11&nbsp;MB to 69&nbsp;MB. That is a deliberate trade &mdash; a fixed floor in exchange for never allocating on the request path &mdash; and it is the wrong trade for a proxy that must idle cheaply.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Experiment</span>
+      <h2>One binary, four topologies, identical request work</h2>
+    </div>
+    <p class="col">To make the comparison mean anything, I first pulled the per-request work — route lookup, backend selection, URI reassembly, hop-by-hop header hygiene — into a single shared function in <code>lb-core</code>, and refactored the existing Hyper candidate onto it. Every candidate now provably does the same work per request, so a throughput difference reflects the runtime rather than the handler.</p>
+    <p class="col">The io_uring candidates are one binary with the topology selected by flag, so the scheduler and the ring layout are the only variables between them. All of them run the same Hyper HTTP/1.1 stack, the same jemalloc, and route every upstream hop over the ring too — no candidate is secretly half epoll.</p>
+
+    <div class="callout">
+      <span class="label">Core budget</span>
+      <p>Four cores total: the proxy is pinned to cores 0–1 with two workers, the origin to core 2, the load generator (<code>oha</code>) to core 3. Every row below was checked for saturation — the proxy is the bottleneck only when it is near its 200% ceiling while the origin and generator still have headroom. Rows where that did not hold are labelled, not quietly reported as proxy results.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Results</span>
+      <h2>Throughput across the concurrency sweep</h2>
+    </div>
+
+    <div class="chart">
+      <span class="label" style="margin-bottom:6px">Requests/sec at c=256, 20s, HTTP/1.1 &mdash; 2 proxy cores</span>
+      <div class="bar-row">
+        <span class="bar-label">hyper &middot; epoll &middot; work-steal</span>
+        <span class="bar-track"><span class="bar-fill baseline" style="width:100%"></span></span>
+        <span class="bar-val">57,012</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">uring &middot; tpc &middot; share-nothing</span>
+        <span class="bar-track"><span class="bar-fill" style="width:84.4%"></span></span>
+        <span class="bar-val">48,090</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">uring &middot; tpc &middot; balanced</span>
+        <span class="bar-track"><span class="bar-fill" style="width:82.4%"></span></span>
+        <span class="bar-val">46,959</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">uring &middot; work-steal &middot; ring/worker</span>
+        <span class="bar-track"><span class="bar-fill bad" style="width:38.6%"></span></span>
+        <span class="bar-val">21,980</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">uring &middot; work-steal &middot; shared ring</span>
+        <span class="bar-track"><span class="bar-fill bad" style="width:30.3%"></span></span>
+        <span class="bar-val">17,275</span>
+      </div>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <caption>20s runs after 5s warmup, small JSON body, keep-alive. CPU is the proxy process against a 200% ceiling. Full matrix in <code>results/uring-experiment/summary.csv</code>.</caption>
+        <thead>
+          <tr>
+            <th>Candidate</th><th>Conns</th><th>RPS</th><th>vs&nbsp;base</th><th>p50 ms</th><th>p99 ms</th><th>CPU %</th><th>RSS MB</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>8</td><td>48,225</td><td>&mdash;</td><td>0.16</td><td>0.32</td><td>185</td><td>10.3</td></tr>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>64</td><td>56,766</td><td>&mdash;</td><td>1.11</td><td>1.93</td><td>196</td><td>14.0</td></tr>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>256</td><td>57,012</td><td>&mdash;</td><td>4.46</td><td>7.80</td><td>199</td><td>26.9</td></tr>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>1000</td><td>52,330</td><td>&mdash;</td><td>8.64</td><td>76.81</td><td>199</td><td>76.1</td></tr>
+
+          <tr><td class="name">uring-tpc-sharenothing</td><td>8</td><td>41,441</td><td class="delta-neg">−14%</td><td>0.19</td><td>0.37</td><td>182</td><td>8.2</td></tr>
+          <tr><td class="name">uring-tpc-sharenothing</td><td>64</td><td>48,682</td><td class="delta-neg">−14%</td><td>1.29</td><td>1.98</td><td>199</td><td>14.0</td></tr>
+          <tr><td class="name">uring-tpc-sharenothing</td><td>256</td><td>48,090</td><td class="delta-neg">−16%</td><td>5.21</td><td>8.59</td><td>199</td><td>33.5</td></tr>
+          <tr><td class="name">uring-tpc-sharenothing</td><td>1000</td><td>38,408</td><td class="delta-neg">−27%</td><td>25.80</td><td class="delta-pos">32.70</td><td>200</td><td>114.3</td></tr>
+
+          <tr><td class="name">uring-tpc-balanced</td><td>8</td><td>42,893</td><td class="delta-neg">−11%</td><td>0.18</td><td>0.36</td><td>186</td><td>8.2</td></tr>
+          <tr><td class="name">uring-tpc-balanced</td><td>64</td><td>49,338</td><td class="delta-neg">−13%</td><td>1.29</td><td>2.18</td><td>199</td><td>14.1</td></tr>
+          <tr><td class="name">uring-tpc-balanced</td><td>256</td><td>46,959</td><td class="delta-neg">−18%</td><td>5.32</td><td>8.96</td><td>199</td><td>34.8</td></tr>
+          <tr><td class="name">uring-tpc-balanced</td><td>1000</td><td>38,404</td><td class="delta-neg">−27%</td><td>25.68</td><td class="delta-pos">37.89</td><td>200</td><td>115.8</td></tr>
+
+          <tr><td class="name">uring-ws-perworkerring</td><td>8</td><td>23,336</td><td class="delta-neg">−52%</td><td>0.32</td><td>0.80</td><td>159</td><td>9.4</td></tr>
+          <tr><td class="name">uring-ws-perworkerring</td><td>64</td><td>22,371</td><td class="delta-neg">−61%</td><td>2.67</td><td>8.09</td><td>159</td><td>15.2</td></tr>
+          <tr><td class="name">uring-ws-perworkerring</td><td>256</td><td>21,980</td><td class="delta-neg">−61%</td><td>11.13</td><td>34.55</td><td>160</td><td>35.3</td></tr>
+          <tr><td class="name">uring-ws-perworkerring</td><td>1000</td><td>19,240</td><td class="delta-neg">−63%</td><td>46.09</td><td>165.54</td><td>161</td><td>111.2</td></tr>
+
+          <tr><td class="name">uring-ws-sharedring</td><td>8</td><td>18,790</td><td class="delta-neg">−61%</td><td>0.39</td><td>1.04</td><td>145</td><td>8.7</td></tr>
+          <tr><td class="name">uring-ws-sharedring</td><td>64</td><td>18,295</td><td class="delta-neg">−68%</td><td>3.25</td><td>9.97</td><td>146</td><td>14.7</td></tr>
+          <tr><td class="name">uring-ws-sharedring</td><td>256</td><td>17,275</td><td class="delta-neg">−70%</td><td>14.24</td><td>41.12</td><td>146</td><td>35.6</td></tr>
+          <tr><td class="name">uring-ws-sharedring</td><td>1000</td><td>15,432</td><td class="delta-neg">−73%</td><td>57.66</td><td>194.49</td><td>148</td><td>110.9</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">Two things in that table are worth more than the headline. The work-stealing rows sit at <strong>146–161% CPU against a 200% ceiling</strong> — they are not compute-bound, they are waiting. And at c=1000 the thread-per-core rows have a materially <em>better</em> tail than the baseline (p99 32.7&nbsp;ms against 76.8&nbsp;ms) despite lower throughput: the per-core design produces a tight, uniform latency distribution where the work-stealing scheduler produces a fast median with a long tail.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Mechanism</span>
+      <h2>Why completion I/O loses under a readiness runtime</h2>
+    </div>
+
+    <p class="col">io_uring is a <em>completion</em> interface: the kernel owns a submitted buffer until its CQE arrives. <code>AsyncRead</code> is a <em>readiness</em> interface: the caller owns the buffer and expects the I/O to happen inside <code>poll_read</code>. Bridging the two forces the reactor to own every in-flight buffer, and it forces a task wakeup where epoll would have returned inline.</p>
+
+    <figure>
+      <svg viewBox="0 0 900 330" role="img" aria-label="Three request read paths compared: epoll under Tokio takes two steps, io_uring adapted to Tokio takes six including a task park and a memcpy, and Arc's completion-native loop takes two with no copy.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#c85a45"/>
+          </marker>
+        </defs>
+
+        <!-- Lane A: epoll -->
+        <text x="0" y="46" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="currentColor">epoll + Hyper</text>
+        <rect x="0" y="56" width="150" height="1" fill="currentColor" opacity="0.25"/>
+        <rect x="170" y="30" width="118" height="34" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="229" y="51" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="currentColor">poll_read</text>
+        <line x1="288" y1="47" x2="316" y2="47" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+        <rect x="318" y="30" width="150" height="34" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="393" y="51" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="currentColor">read(2) → bytes</text>
+        <text x="486" y="51" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity="0.6">1 syscall · no park · no copy</text>
+
+        <!-- Lane B: uring under tokio -->
+        <text x="0" y="156" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="#c85a45">io_uring under Tokio</text>
+        <rect x="0" y="166" width="150" height="1" fill="#c85a45" opacity="0.35"/>
+        <rect x="170" y="122" width="92" height="34" rx="2" fill="none" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="216" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">poll_read</text>
+        <line x1="262" y1="139" x2="284" y2="139" stroke="#c85a45" stroke-width="1.2" marker-end="url(#ar-hot)"/>
+        <rect x="286" y="122" width="104" height="34" rx="2" fill="none" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="338" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">submit SQE</text>
+        <line x1="390" y1="139" x2="412" y2="139" stroke="#c85a45" stroke-width="1.2" marker-end="url(#ar-hot)"/>
+        <rect x="414" y="122" width="86" height="34" rx="2" fill="#c85a45" fill-opacity="0.12" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="457" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">park task</text>
+        <line x1="500" y1="139" x2="522" y2="139" stroke="#c85a45" stroke-width="1.2" marker-end="url(#ar-hot)"/>
+        <rect x="524" y="122" width="104" height="34" rx="2" fill="none" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="576" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">eventfd</text>
+        <line x1="628" y1="139" x2="650" y2="139" stroke="#c85a45" stroke-width="1.2" marker-end="url(#ar-hot)"/>
+        <rect x="652" y="122" width="104" height="34" rx="2" fill="none" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="704" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">driver reaps</text>
+        <line x1="756" y1="139" x2="778" y2="139" stroke="#c85a45" stroke-width="1.2" marker-end="url(#ar-hot)"/>
+        <rect x="780" y="122" width="112" height="34" rx="2" fill="#c85a45" fill-opacity="0.12" stroke="#c85a45" stroke-width="1.2"/>
+        <text x="836" y="143" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="#c85a45">memcpy out</text>
+        <text x="170" y="180" font-family="IBM Plex Mono, monospace" font-size="11" fill="#c85a45" opacity="0.85">1 syscall · 1 task wakeup · 1 extra copy — per read, and again per write</text>
+
+        <!-- Lane C: Arc -->
+        <text x="0" y="266" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="currentColor">completion-native</text>
+        <rect x="0" y="276" width="150" height="1" fill="currentColor" opacity="0.25"/>
+        <rect x="170" y="240" width="160" height="34" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="250" y="261" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="currentColor">drain CQE batch</text>
+        <line x1="330" y1="257" x2="358" y2="257" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+        <rect x="360" y="240" width="184" height="34" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <text x="452" y="261" font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle" fill="currentColor">advance state machine</text>
+        <text x="562" y="261" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity="0.6">syscalls amortised over the batch</text>
+        <text x="170" y="298" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity="0.6">no park · no copy — reads land in a pre-registered buffer</text>
+      </svg>
+      <figcaption>The same operation — read the next bytes of a request — in three designs. The middle lane is what you get when io_uring is adapted to a poll-based executor: the park and the copy are structural, not tuning gaps.</figcaption>
+    </figure>
+
+    <p class="col">That accounts for the thread-per-core gap. The <em>work-stealing</em> collapse has a second cause on top: a stolen task submits to a ring owned by another thread, so the ring needs a lock, and with a single shared ring one driver task must reap every completion in the process. Giving each worker its own ring recovered part of it — 17,275 to 21,980 rps at c=256 — but nowhere near enough, because stealing still scatters submissions across rings.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">The decisive test</span>
+      <h2>Remove the submit syscall and the gap mostly closes</h2>
+    </div>
+
+    <p class="col">If the cost really is the <code>io_uring_enter</code> on every submission, then <code>IORING_SETUP_SQPOLL</code> &mdash; which hands the submission queue to a kernel poller thread so userspace never enters the kernel to submit &mdash; should recover it. It does, dramatically, and it is the single most informative number in this whole exercise.</p>
+
+    <div class="scroller">
+      <table>
+        <caption>Same binary, same flags, <code>--sqpoll</code> toggled. Baseline re-measured in this session: 52,647 rps at c=64, 54,979 at c=256.</caption>
+        <thead>
+          <tr><th>Candidate</th><th>Conns</th><th>RPS</th><th>vs&nbsp;base</th><th>p99 ms</th><th>CPU %</th></tr>
+        </thead>
+        <tbody>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>256</td><td>54,979</td><td>100%</td><td>7.87</td><td>199</td></tr>
+          <tr><td class="name">uring-tpc-balanced</td><td>256</td><td>45,910</td><td class="delta-neg">84%</td><td>12.51</td><td>198</td></tr>
+          <tr><td class="name">uring-tpc-balanced <strong>+sqpoll</strong></td><td>256</td><td>58,283</td><td class="delta-pos">106%</td><td>8.08</td><td>205</td></tr>
+          <tr><td class="name">uring-ws-perworkerring</td><td>256</td><td>21,127</td><td class="delta-neg">38%</td><td>36.44</td><td>159</td></tr>
+          <tr><td class="name">uring-ws-perworkerring <strong>+sqpoll</strong></td><td>256</td><td>52,110</td><td class="delta-neg">95%</td><td>11.17</td><td>205</td></tr>
+          <tr class="is-baseline"><td class="name">hyper-epoll-ws</td><td>64</td><td>52,647</td><td>100%</td><td>1.96</td><td>196</td></tr>
+          <tr><td class="name">uring-tpc-balanced</td><td>64</td><td>49,696</td><td class="delta-neg">94%</td><td>2.06</td><td>199</td></tr>
+          <tr><td class="name">uring-tpc-balanced <strong>+sqpoll</strong></td><td>64</td><td>31,574</td><td class="delta-neg">60%</td><td>2.94</td><td>202</td></tr>
+          <tr><td class="name">uring-ws-perworkerring</td><td>64</td><td>24,206</td><td class="delta-neg">46%</td><td>7.51</td><td>160</td></tr>
+          <tr><td class="name">uring-ws-perworkerring <strong>+sqpoll</strong></td><td>64</td><td>35,525</td><td class="delta-neg">67%</td><td>3.84</td><td>203</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">Work-stealing over per-worker rings goes from 21,127 to <strong>52,110</strong> rps &mdash; a 2.5&times; jump from deleting one syscall per operation. That is conclusive about where its time went: it was never the copy or the waker, it was <code>enter</code>, and holding a lock across it. And thread-per-core with SQPOLL reaches 58,283 rps, <strong>6% above the epoll baseline</strong> &mdash; the only configuration in the sweep that beat Hyper.</p>
+
+    <div class="callout warn">
+      <span class="label">Why that 6% does not settle it</span>
+      <p>The SQPOLL rows draw <strong>202&ndash;205% CPU against a 200% budget</strong>. I did not set <code>IORING_SETUP_SQ_AFF</code>, so the kernel poller threads are not confined by the proxy's <code>taskset</code> &mdash; they spill onto the cores running the origin and the load generator, and some of their time is not billed to the proxy at all. The win is real but it was bought with CPU the other candidates were not given.</p>
+    </div>
+
+    <p class="col">The inversion at c=64 is the tell: SQPOLL <em>hurts</em> thread-per-core there, dropping it from 94% to 60% of baseline. A kernel poller only pays for itself while the ring stays busy enough to keep it from parking; below that threshold you pay for wakeups plus a thread competing for the same cores. SQPOLL is not a free win, it is a trade that needs load to justify it.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Hypothesis retired</span>
+      <h2>Share-nothing placement was not the bottleneck</h2>
+    </div>
+    <p class="col">I expected static <code>SO_REUSEPORT</code> placement to hurt: the kernel hashes connections to accept queues without regard for load, so one core can sit on slow work while another idles. So I built a dispatcher that hands each accepted connection to the least-loaded core, scored by in-flight requests, with hysteresis to avoid pointless migration.</p>
+    <p class="col">It made almost no difference — <strong>48,682 against 49,338 rps</strong> at c=64, inside run-to-run noise. The only place it showed up at all was c=8, where the hash has few connections to spread and imbalance is real: 42,893 against 41,441, about 3.5%. Real, but nowhere near the size of the gap that matters. Connection-level placement is the wrong knob when the cost is per-operation.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Prior art</span>
+      <h2>What Arc does instead</h2>
+    </div>
+    <p class="col"><a href="https://github.com/shuakami/Arc">Arc</a> is a ~57k-line io_uring gateway that takes the other road: it has no async runtime at all. Its worker is a bare loop — <code>submit_and_wait(1)</code>, drain every CQE, dispatch each one to a hand-written state machine — and it ships its own HTTP/1 and HTTP/2 implementations rather than sitting on Hyper. That single decision is what unlocks the six mechanisms below, all of which my adapter structurally cannot use.</p>
+
+    <div class="mech">
+      <div>
+        <span class="m-head">SQE batching</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span><code>push_sqe</code> writes the ring with no syscall; one <code>io_uring_enter</code> covers the whole accumulated batch.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>One <code>enter</code> per operation. The SQPOLL result above measures exactly what this costs: up to 2.5&times; throughput.</span></span>
+      </div>
+      <div>
+        <span class="m-head">Registered buffers</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span><code>read_fixed</code>/<code>write_fixed</code> against a pre-registered, page-touched pool with intrusive refcounts for zero-copy splitting.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>A per-connection <code>Vec</code> plus a copy into the caller's buffer on every read.</span></span>
+      </div>
+      <div>
+        <span class="m-head">Registered files</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span><code>register_files</code> with <code>IOSQE_FIXED_FILE</code>: no fd table lookup per operation.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>Raw fds, resolved by the kernel on every submission.</span></span>
+      </div>
+      <div>
+        <span class="m-head">Multishot accept</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span>One SQE serves many accepts, with a runtime downgrade if the kernel returns <code>EINVAL</code>.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>One accept SQE per connection.</span></span>
+      </div>
+      <div>
+        <span class="m-head">No waker machinery</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span>CQE <code>user_data</code> packs op kind, side, slab index and a generation counter; the handler advances the connection directly.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>Every completion goes eventfd → driver task → waker → reschedule.</span></span>
+      </div>
+      <div>
+        <span class="m-head">Owns the park point</span>
+        <span class="m-arc"><span class="tag tag-arc">Arc</span><span>The loop decides when to block, so it can flush pending submissions immediately before sleeping.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Mine</span><span>Tokio owns parking; there is no hook to flush the ring before it sleeps, so batching is unavailable and SQPOLL is the only substitute.</span></span>
+      </div>
+    </div>
+
+    <p class="col">The first row is the one the SQPOLL experiment vindicates. Arc gets the same effect &mdash; no syscall per operation &mdash; by accumulating SQEs and paying one <code>enter</code> for the batch, which costs no extra thread and no extra core. SQPOLL buys the same outcome with a kernel thread; batching buys it for free. That is only possible because Arc's loop decides when to block.</p>
+    <p class="col">The implementation quality holds up on inspection: a real HTTP/1 parser with a chunked-transfer state machine, generation-tagged slab keys that make stale-completion handling sound, 172 test functions, and CI that runs <code>cargo test --workspace</code>. The io_uring binding is hand-rolled against raw syscalls and mmap rather than the <code>io-uring</code> crate — a deliberate choice to control the submission path.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">Caveat</span>
+      <h2>Arc's headline number is not reproducible from the repository</h2>
+    </div>
+
+    <div class="callout warn">
+      <p>The README claims 102,203 RPS against Nginx's 49,930 at c=256 — a 2.05× win. The benchmark harness that ships in the repo cannot produce a number like that, and no artifact backing the claim is committed.</p>
+    </div>
+
+    <ul class="plain">
+      <li>The origin server is <code>http.server.ThreadingHTTPServer</code> from the Python standard library — one OS thread per connection, all contending on the GIL. That tops out in the low thousands of requests per second, not six figures.</li>
+      <li><code>benchmark/results/</code> contains only a <code>.gitkeep</code>. The <code>BENCHMARKS.md</code> that once held numbers was deleted in <code>ce78a49</code>.</li>
+      <li>Everything is co-resident on a WSL2 VM with 2 vCPUs: <code>wrk -t8 -c256</code>, Nginx, Arc, and the Python backend all competing for two cores. That is the same failure mode that made the earlier runs in this repository meaningless.</li>
+      <li>The harness gives Arc <code>ARC_WORKERS=1</code> while Nginx gets <code>worker_processes auto</code>. The asymmetry runs against Arc, but it means the two sides were never configured comparably.</li>
+    </ul>
+
+    <p class="col">None of this says the architecture is wrong — the code is real and the design is coherent. It says the 2× figure should be treated as unverified until someone reruns it with a backend that is not the bottleneck and a load generator that is not sharing cores with both proxies.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">What it took</span>
+      <h2>The four changes, and what each was worth</h2>
+    </div>
+
+    <p class="col">Nothing about the scheduler produced the win. Every step that mattered removed a cost the adapter was paying on every single operation.</p>
+
+    <div class="mech">
+      <div>
+        <span class="m-head">1 &middot; Batch the submissions</span>
+        <span class="m-arc"><span class="tag tag-arc">+58%</span><span>Queue SQEs and issue one <code>io_uring_enter</code> per scheduler batch. Under Tokio this needs a flusher task that yields, because the runtime owns the park point; natively the loop just submits before it blocks.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Why</span><span>One syscall per operation is exactly what epoll costs. Until submissions batch, io_uring has no advantage to spend.</span></span>
+      </div>
+      <div>
+        <span class="m-head">2 &middot; Delete the poll adapter</span>
+        <span class="m-arc"><span class="tag tag-arc">+2&times;</span><span>Hand-written state machines advanced straight from CQEs. No future, no waker, no task wakeup per read.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Why</span><span>Completion I/O under a readiness API forces a kernel-owned buffer to be copied into a caller-owned one, and forces a park where epoll returns inline.</span></span>
+      </div>
+      <div>
+        <span class="m-head">3 &middot; Register the buffers</span>
+        <span class="m-arc"><span class="tag tag-arc">+66%</span><span><code>ReadFixed</code>/<code>WriteFixed</code> against a pre-registered pool, and the buffer a response is read into is the buffer it is written out of.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Why</span><span>Measured on the 1&nbsp;MiB body, where an intermediate copy per chunk had the native build at 51% of Hyper. Removing it took that to 71%.</span></span>
+      </div>
+      <div>
+        <span class="m-head">4 &middot; Size the buffers to the body</span>
+        <span class="m-arc"><span class="tag tag-arc">+76%</span><span>16&nbsp;KiB buffers turn a 1&nbsp;MiB body into 64 serialized read/write round trips. At 64&nbsp;KiB the same body wins.</span></span>
+        <span class="m-mine"><span class="tag tag-mine">Why</span><span>1&nbsp;MiB went 1,589 &rarr; 2,794 rps against Hyper's 2,733. This was the last thing standing between "wins on small payloads" and "wins on all of them".</span></span>
+      </div>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <caption>Payload sweep at c=64 after all four changes. The native build wins at every size; the Hyper-over-io_uring builds lose as soon as bytes dominate.</caption>
+        <thead>
+          <tr><th>Payload</th><th>hyper</th><th>native</th><th>ratio</th><th>uring-under-hyper</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1 KiB</td><td>48,369</td><td>95,305</td><td class="delta-pos">197%</td><td>53,304</td></tr>
+          <tr><td>64 KiB</td><td>19,343</td><td>27,169</td><td class="delta-pos">140%</td><td>13,285</td></tr>
+          <tr><td>1 MiB</td><td>2,733</td><td>2,794</td><td class="delta-pos">102%</td><td>1,166</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="label">The bill</span>
+      <h2>What this costs to own</h2>
+    </div>
+    <p class="col">The 2.9&times; is real and it is measured on an even footing, but it is not free, and the price is not performance work &mdash; it is scope.</p>
+    <ul class="plain">
+      <li><strong>You maintain an HTTP implementation.</strong> The native build is HTTP/1.1 only. Its parser, its chunked-transfer framing, its keep-alive and hop-by-hop handling are all code someone now owns. HTTP/2, TLS, upgrades and trailers are not written yet, and each is a real project.</li>
+      <li><strong>You leave the ecosystem.</strong> No Tower layers, no Hyper client, no <code>tracing</code>-instrumented middleware. Everything that would have been a dependency becomes a feature request.</li>
+      <li><strong>Memory becomes a floor, not a curve.</strong> 267&nbsp;MB resident at idle, because the buffer pool is registered up front. Hyper starts at 11&nbsp;MB.</li>
+      <li><strong>Correctness is on you.</strong> The generation-tagged completion keys, the buffer ownership rules, the chunked scanner that must not mistake body bytes for a terminator &mdash; these are the kinds of bug that a benchmark passes straight through. The 15 unit tests here are a floor, not a proof.</li>
+    </ul>
+    <p class="col">So the honest recommendation is unchanged from the start: this is worth it when the proxy <em>is</em> the product, and hard to justify when it is a component. What did change is the size of the prize &mdash; I expected the ceiling to be tens of percent, and it is closer to 3&times;.</p>
+  </section>
+
+  <footer>
+    <p>Headline measurements: 8-core host, kernel 7.0.0-30, rustc 1.97.1, release + fat LTO + <code>target-cpu=x86-64-v3</code>, jemalloc for every candidate. Proxy pinned to 2 cores, origin to 2, <code>oha</code> 1.16.0 to 4, so the proxy is the only saturated process in every row reported. Earlier 1-core and 4-core figures come from a second host and are labelled where they appear.</p>
+    <p>Code on branch <code>uring-experiment</code>: <code>crates/proxy-native</code> (the 2.9&times; build), <code>crates/uring</code> and <code>crates/proxy-uring</code> (the Hyper-over-io_uring topologies), <code>crates/core/src/forward.rs</code> (the shared request path every candidate runs), <code>scripts/uring_bench.sh</code>. Raw output in <code>results/uring-experiment/</code>.</p>
+  </footer>
+
+</div>

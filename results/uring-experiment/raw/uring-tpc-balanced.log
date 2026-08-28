@@ -1,0 +1,2 @@
+[2m2026-08-28T18:04:13.276114Z[0m [32m INFO[0m [2mlb_proxy_uring[0m[2m:[0m starting lb-proxy-uring [3mallocator[0m[2m=[0m"jemalloc" [3mlisten[0m[2m=[0m0.0.0.0:8080 [3mworkers[0m[2m=[0m2 [3mscheduler[0m[2m=[0mTpc [3mdispatch[0m[2m=[0mBalanced [3mrings[0m[2m=[0mPerWorker [3msqpoll[0m[2m=[0mfalse
+[2m2026-08-28T18:04:13.276612Z[0m [32m INFO[0m [2mlb_proxy_uring[0m[2m:[0m uring/thread-per-core listening [3mworkers[0m[2m=[0m2
