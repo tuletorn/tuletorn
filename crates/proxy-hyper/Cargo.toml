@@ -1,0 +1,43 @@
+[package]
+name = "lb-proxy-hyper"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Hyper 1.x + Tokio reverse proxy candidate"
+
+[lib]
+name = "lb_proxy_hyper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lb-proxy-hyper"
+path = "src/main.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+bytes.workspace = true
+socket2.workspace = true
+num_cpus.workspace = true
+arc-swap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+anyhow.workspace = true
+# Declared here, not in lb-core: a `#[global_allocator]` behind a feature in a
+# shared library is silently re-selected by Cargo feature unification.
+tikv-jemallocator.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[features]
+default = ["k8s"]
+k8s = ["lb-core/k8s"]

@@ -1,0 +1,39 @@
+[package]
+name = "lb-proxy-pingora"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Cloudflare Pingora reverse proxy candidate"
+
+[lib]
+name = "lb_proxy_pingora"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lb-proxy-pingora"
+path = "src/main.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+tokio.workspace = true
+pingora-core.workspace = true
+pingora-proxy.workspace = true
+pingora-load-balancing.workspace = true
+pingora-http.workspace = true
+http.workspace = true
+bytes.workspace = true
+async-trait.workspace = true
+num_cpus.workspace = true
+arc-swap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+anyhow.workspace = true
+tikv-jemallocator.workspace = true
+
+[features]
+default = ["k8s"]
+k8s = ["lb-core/k8s"]

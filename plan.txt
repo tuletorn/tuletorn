@@ -1,0 +1,568 @@
+# Implementation Plan: Ultra-Optimized Rust Proxy Benchmark vs. Traefik v3.7.12 (Rust 2024 / 1.97)
+
+This document specifies the technical design, crate architecture, maximum release/SIMD/PGO compiler optimizations, profiling integration, and execution plan for a **benchmark crate** within the `lb` application workspace, comparing **Hyper**, **Cloudflare Pingora**, and **Monoio** against **Traefik v3.7.12** on **local Kubernetes (`kind`)** and standalone bare-metal in **Rust 2024 (rustc 1.97)**.
+
+> [!IMPORTANT]
+> The benchmark suite is structured as a **first-class crate** (`crates/bench`) within the `lb` workspace from day one. Proxy candidate implementations live as sibling crates that the bench crate depends on. This ensures the benchmark infrastructure is reusable, testable, and grows naturally alongside the main proxy application.
+
+---
+
+## 1. System Architecture & Benchmark Topology
+
+```
++---------------------------------------------------------------------------------------------------+
+|                               LOCAL KUBERNETES TESTBED (`kind` Cluster)                           |
+|                                                                                                   |
+|  [ lb-bench CLI (crates/bench) ]                                                                  |
+|  - Concurrency: 100 -> 1,000 -> 10,000 -> 50,000 connections (HTTP/1.1 & HTTP/2)                 |
+|  - HdrHistogram (p50, p90, p99, p99.9, max latency with Coordinated Omission correction)         |
+|  - Real-time Prometheus / cAdvisor Resource Sampler (CPU %, RSS Memory MB)                        |
+|  - Hardware Spec Collector (CPU model, core count, RAM, OS/kernel version)                        |
+|                                                                                                   |
+|                                         | HTTP Traffic                                            |
+|                                         v                                                         |
+|  +---------------------------------------------------------------------------------------------+  |
+|  |                             GATEWAY API CANDIDATES (Under Test)                             |  |
+|  |                                                                                             |  |
+|  |  [ Baseline: Go ]               [ crates/proxy-hyper ]      [ crates/proxy-pingora ]        |  |
+|  |  Traefik v3.7.12 (Official)     Hyper 1.11+ + Tokio 1.53+   Pingora 0.8+ + Tokio 1.53+      |  |
+|  |  - Image: traefik:v3.7.12       - jemalloc 0.7+             - Cloudflare Proxy Engine       |  |
+|  |  - Gateway API v1.2 Provider    - SIMD UTF-8 / memchr       - SIMD Header Matching          |  |
+|  |  - Go Runtime & GC              - ArcSwap<matchit 0.9+>     - LTO fat + PGO + Native CPU   |  |
+|  |  - Extended warm-up period       - PGO + BOLT optimized      - PGO + BOLT optimized          |  |
+|  |                                                                                             |  |
+|  |  [ crates/proxy-monoio ]                                                                   |  |
+|  |  Monoio 0.2.4+ (Thread-per-core, io_uring / kqueue zero-copy buffer ownership)              |  |
+|  |  - Hybrid Runtime: Monoio data plane + dedicated Tokio thread for kube-rs control plane     |  |
+|  +---------------------------------------------------------------------------------------------+  |
+|                                         | Forwarded Stream                                        |
+|                                         v                                                         |
+|  [ Upstream Mock Backend Pods ] (Multi-replica Rust echo service, 0ms / 1ms / 5ms delay profiles)  |
+|                                                                                                   |
+|  [ K8s Churn Generator ] (Simulates rapid Pod scaling, rollout restarts & HTTPRoute updates)      |
++---------------------------------------------------------------------------------------------------+
+```
+
+---
+
+## 2. Workspace & Crate Architecture
+
+The `lb` workspace is the root of the entire application. The benchmark suite is a dedicated crate (`crates/bench`) that depends on sibling proxy crates. Each proxy candidate is its own crate with a library and binary target. Shared primitives (routing, types, allocator config) live in `crates/core`.
+
+```
+lb/                                         # Workspace root (the application)
+├── Cargo.toml                              # [workspace] manifest — Rust 2024, shared profiles
+├── rust-toolchain.toml                     # Pinned: channel = "1.97.1"
+│
+├── crates/
+│   │
+│   ├── core/                               # Shared library crate: routing, types, allocator
+│   │   ├── Cargo.toml                      # name = "lb-core"
+│   │   └── src/
+│   │       ├── lib.rs                      # Re-exports modules
+│   │       ├── route_table.rs              # ArcSwap<matchit::Router> wrapper, hostname map
+│   │       ├── target.rs                   # Upstream endpoints, Round-Robin / Weighted LB
+│   │       ├── filter.rs                   # Gateway API filters (header mod, URL rewrite)
+│   │       └── alloc.rs                    # jemalloc / mimalloc global allocator setup
+│   │
+│   ├── proxy-hyper/                        # Candidate 1: Hyper 1.11 + Tokio 1.53
+│   │   ├── Cargo.toml                      # name = "lb-proxy-hyper", depends on lb-core
+│   │   └── src/
+│   │       ├── lib.rs                      # Library: ProxyHyper struct, public API
+│   │       ├── main.rs                     # Binary: standalone / k8s entry point
+│   │       ├── server.rs                   # TCP_NODELAY, SO_REUSEPORT, Hyper auto H1/H2
+│   │       ├── client.rs                   # Connection pooled Hyper upstream client
+│   │       └── k8s_controller.rs           # kube 4.2 Gateway API reconciler
+│   │
+│   ├── proxy-pingora/                      # Candidate 2: Pingora 0.8
+│   │   ├── Cargo.toml                      # name = "lb-proxy-pingora", depends on lb-core
+│   │   └── src/
+│   │       ├── lib.rs                      # Library: ProxyPingora struct, public API
+│   │       ├── main.rs                     # Binary: standalone / k8s entry point
+│   │       ├── proxy_service.rs            # Pingora ProxyHttp trait implementation
+│   │       └── k8s_controller.rs           # kube 4.2 Gateway API reconciler
+│   │
+│   ├── proxy-monoio/                       # Candidate 3: Monoio 0.2.4 (Hybrid Runtime)
+│   │   ├── Cargo.toml                      # name = "lb-proxy-monoio", depends on lb-core
+│   │   └── src/
+│   │       ├── lib.rs                      # Library: ProxyMonoio struct, public API
+│   │       ├── main.rs                     # Binary: hybrid Tokio thread + Monoio workers
+│   │       ├── server.rs                   # Thread-per-core socket engine
+│   │       └── k8s_controller.rs           # Runs on dedicated Tokio current_thread runtime
+│   │
+│   └── bench/                              # ★ BENCHMARK CRATE ★
+│       ├── Cargo.toml                      # name = "lb-bench"
+│       │                                   # [lib] — benchmark library (harness, metrics, mock)
+│       │                                   # [[bin]] name = "lb-bench" — CLI runner
+│       │                                   # [dev-dependencies] — criterion
+│       └── src/
+│           ├── lib.rs                      # Public benchmark library API
+│           ├── main.rs                     # CLI entry point (clap): --mode local|k8s, --candidate, etc.
+│           │
+│           ├── harness/                    # Benchmark execution engine
+│           │   ├── mod.rs
+│           │   ├── runner.rs               # Orchestrates candidate lifecycle: start → warmup → measure → stop
+│           │   ├── warmup.rs               # Fair warm-up protocol (3s cold → 15s traffic → 5s GC settle)
+│           │   └── scenario.rs             # Scenario definitions (throughput, memory, churn, PGO delta)
+│           │
+│           ├── load/                       # Load generation engine
+│           │   ├── mod.rs
+│           │   ├── generator.rs            # High-throughput async HTTP load generator
+│           │   └── payloads.rs             # Standardized payloads: 1KB, 64KB, 1MB
+│           │
+│           ├── metrics/                    # Measurement & recording
+│           │   ├── mod.rs
+│           │   ├── latency.rs              # HdrHistogram 7.6 with Coordinated Omission correction
+│           │   ├── resources.rs            # CPU & RSS memory sampler (sysinfo 0.39.6)
+│           │   └── hardware.rs             # Auto-detects CPU model, cores, RAM, OS, kernel
+│           │
+│           ├── mock/                       # Mock upstream servers
+│           │   ├── mod.rs
+│           │   └── upstream.rs             # Ultra-fast mock HTTP/1.1 & H2 echo server
+│           │
+│           ├── k8s/                        # Kubernetes test harness
+│           │   ├── mod.rs
+│           │   ├── kind_cluster.rs         # Kind cluster lifecycle (create, configure, destroy)
+│           │   ├── deployer.rs             # Deploys candidates & Traefik v3.7.12 to kind
+│           │   └── churn.rs                # Route churn injector (mutates HTTPRoute via kube 4.2)
+│           │
+│           ├── profiling/                  # Flamegraph & PGO profiling
+│           │   ├── mod.rs
+│           │   ├── flamegraph.rs           # Automated cargo-flamegraph + Go pprof capture
+│           │   └── pgo.rs                  # PGO build pipeline orchestration
+│           │
+│           └── report/                     # Report generation
+│               ├── mod.rs
+│               ├── markdown.rs             # Markdown comparison report with embedded flamegraphs
+│               ├── csv.rs                  # CSV export for raw metrics
+│               └── hardware_report.rs      # Hardware spec JSON embedding
+│
+├── benches/                                # Criterion microbenchmarks (workspace-level)
+│   ├── routing_bench.rs                    # matchit vs route-recognizer (uses lb-core)
+│   ├── route_swap_bench.rs                 # ArcSwap vs RwLock under churn (uses lb-core)
+│   └── simd_parsing_bench.rs              # simdutf8 vs std utf8 & memchr
+│
+├── k8s/                                    # Kubernetes manifests
+│   ├── kind-cluster-config.yaml            # Kind config: kindest/node:v1.31.6, port mappings
+│   ├── gateway-api-crds.yaml               # Official Gateway API v1.2.1 CRDs
+│   ├── traefik/
+│   │   ├── deployment.yaml                 # Traefik v3.7.12 + GatewayClass + pprof enabled
+│   │   └── gateway.yaml
+│   ├── rust-proxies/
+│   │   ├── hyper-deployment.yaml
+│   │   ├── pingora-deployment.yaml
+│   │   └── monoio-deployment.yaml
+│   ├── mock-backend/
+│   │   └── mock-upstream-deployment.yaml
+│   └── routes/
+│       ├── benchmark-httproute.yaml
+│       └── churn-test-routes.yaml
+│
+├── scripts/
+│   ├── setup_kind.sh                       # Creates kind cluster & installs Gateway API v1.2.1
+│   ├── build_and_load_images.sh            # Builds release containers & loads to kind
+│   ├── build_pgo.sh                        # Three-pass PGO build pipeline
+│   ├── build_bolt.sh                       # BOLT post-link optimization (Linux only)
+│   ├── capture_flamegraphs.sh              # Automated flamegraph capture
+│   └── plot_results.py                     # Generates latency CDF, throughput bars, memory charts
+│
+├── examples/
+│   ├── pgo_routes.yaml                     # Representative route config for PGO profiling pass
+│   └── bench_routes.yaml                   # Standard benchmark route config
+│
+└── results/                                # Benchmark reports, raw JSON, flamegraphs, and plots
+```
+
+### Crate Dependency Graph
+```
+                    ┌──────────┐
+                    │ lb-core  │  (shared routing, types, allocator)
+                    └────┬─────┘
+           ┌─────────────┼─────────────┐
+           v             v             v
+    ┌─────────────┐ ┌──────────┐ ┌───────────┐
+    │lb-proxy-hyper│ │lb-proxy- │ │lb-proxy-  │
+    │             │ │ pingora  │ │ monoio    │
+    └──────┬──────┘ └────┬─────┘ └─────┬─────┘
+           │             │             │
+           └─────────────┼─────────────┘
+                         v
+                    ┌──────────┐
+                    │ lb-bench │  (benchmark harness, load gen, metrics, reports)
+                    └──────────┘
+```
+
+### Workspace `Cargo.toml`
+```toml
+[workspace]
+resolver = "3"
+members = [
+    "crates/core",
+    "crates/proxy-hyper",
+    "crates/proxy-pingora",
+    "crates/proxy-monoio",
+    "crates/bench",
+]
+
+# Shared dependency versions across the workspace
+[workspace.dependencies]
+tokio = { version = "1.53", features = ["full", "parking_lot"] }
+hyper = { version = "1.11", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1.20", features = ["server-auto", "client-legacy", "tokio", "http1", "http2"] }
+http-body-util = "0.1.5"
+bytes = "1.12"
+matchit = "0.9.2"
+arc-swap = "1.9.2"
+kube = { version = "4.2", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.28", features = ["latest"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace", "timeout", "cors"] }
+rustls = "0.23"
+tokio-rustls = "0.26.4"
+simdutf8 = "0.1.5"
+memchr = "2.8.3"
+httparse = "1.10.1"
+tikv-jemallocator = "0.7"
+mimalloc = { version = "0.1.52", features = ["local_dynamic_tls"] }
+crossbeam-utils = "0.8.22"
+hdrhistogram = "7.6"
+sysinfo = "0.39.6"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+overflow-checks = false
+debug = false
+
+[profile.bench]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+```
+
+### Bench Crate `Cargo.toml` (`crates/bench/Cargo.toml`)
+```toml
+[package]
+name = "lb-bench"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "lb_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lb-bench"
+path = "src/main.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+lb-proxy-hyper = { path = "../proxy-hyper" }
+lb-proxy-pingora = { path = "../proxy-pingora" }
+lb-proxy-monoio = { path = "../proxy-monoio" }
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+kube.workspace = true
+k8s-openapi.workspace = true
+hdrhistogram.workspace = true
+sysinfo.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tikv-jemallocator.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+```
+
+---
+
+## 3. Verified Latest Versions (Crates.io — August 2026)
+
+| Subsystem / Role | Technology / Crate | Exact Latest Version |
+| :--- | :--- | :--- |
+| **Baseline Controller** | **Traefik** | `v3.7.12` |
+| **Rust Toolchain** | Rust Edition 2024 | `rustc 1.97.1` |
+| **Async Runtime (Multi-Thread)** | `tokio` | **`1.53.1`** |
+| **Async Runtime (Thread-Per-Core)** | `monoio` | **`0.2.4`** |
+| **Data Plane: Hyper** | `hyper` | **`1.11.0`** |
+| **Data Plane Utilities** | `hyper-util`, `http-body-util` | **`0.1.20`**, **`0.1.5`** |
+| **Data Plane: Pingora** | `pingora-core`, `pingora-proxy`, `pingora-http` | **`0.8.1`** |
+| **Lock-Free Routing** | `arc-swap`, `matchit` | **`1.9.2`**, **`0.9.2`** |
+| **Kubernetes Controller** | `kube`, `k8s-openapi` | **`4.2.0`**, **`0.28.0`** |
+| **Middleware & HTTP Stack** | `tower`, `tower-http`, `bytes` | **`0.5.3`**, **`0.7.0`**, **`1.12.1`** |
+| **SIMD Accelerators** | `simdutf8`, `memchr`, `httparse` | **`0.1.5`**, **`2.8.3`**, **`1.10.1`** |
+| **Memory Allocators** | `tikv-jemallocator`, `mimalloc` | **`0.7.0`**, **`0.1.52`** |
+| **CPU Cache Alignment** | `crossbeam-utils` | **`0.8.22`** |
+| **Metrics & Tail Latency** | `hdrhistogram`, `sysinfo` | **`7.6.0`**, **`0.39.6`** |
+| **Microbenchmarks** | `criterion` | **`0.8.2`** |
+| **CLI & Serialization** | `clap`, `serde`, `serde_json`, `serde_yaml` | **`4.6.6`**, **`1.0.229`**, **`1.0.151`**, **`0.9.34`** |
+| **TLS & SNI** | `rustls`, `tokio-rustls` | **`0.23`**, **`0.26.4`** |
+| **Observability** | `tracing`, `tracing-subscriber` | **`0.1.44`**, **`0.3.23`** |
+
+
+
+---
+
+## 4. Maximum Release, PGO, BOLT & Compiler Optimizations
+
+### 4.1. Compiler Vectorization Flags
+```bash
+export RUSTFLAGS="-C target-cpu=native -C llvm-args=-inline-threshold=600"
+```
+
+### 4.2. Profile-Guided Optimization (PGO) Pipeline
+
+Three-pass build automated in `scripts/build_pgo.sh`:
+```bash
+#!/bin/bash
+set -euo pipefail
+CANDIDATE=${1:?Usage: build_pgo.sh <lb-proxy-hyper|lb-proxy-pingora|lb-proxy-monoio>}
+PROFDATA_DIR="target/pgo-profiles"
+
+echo "=== Pass 1: Instrumented build ==="
+rm -rf "$PROFDATA_DIR" && mkdir -p "$PROFDATA_DIR"
+RUSTFLAGS="-C target-cpu=native -Cprofile-generate=$PROFDATA_DIR" \
+    cargo build --release --bin "$CANDIDATE"
+
+echo "=== Pass 2: Profile collection ==="
+./target/release/"$CANDIDATE" --mode standalone --config examples/pgo_routes.yaml &
+PROXY_PID=$!; sleep 2
+cargo run --release --bin lb-bench -- --mode local --target localhost:8080 \
+    --concurrency 100,500,1000 --duration 10s --payload-sizes 1k,64k --warmup 2s
+kill $PROXY_PID; wait $PROXY_PID 2>/dev/null || true
+
+echo "=== Merge profiles ==="
+llvm-profdata merge -o "$PROFDATA_DIR/merged.profdata" "$PROFDATA_DIR"
+
+echo "=== Pass 3: PGO-optimized build ==="
+RUSTFLAGS="-C target-cpu=native -Cprofile-use=$PROFDATA_DIR/merged.profdata" \
+    cargo build --release --bin "$CANDIDATE"
+```
+
+### 4.3. BOLT Post-Link Optimization (Linux Only)
+```bash
+perf record -e cycles:u -j any,u -o perf.data -- ./target/release/lb-proxy-hyper &
+# Run representative load ...
+perf2bolt -p perf.data -o perf.fdata ./target/release/lb-proxy-hyper
+llvm-bolt ./target/release/lb-proxy-hyper -o ./target/release/lb-proxy-hyper.bolt \
+    -data=perf.fdata -reorder-blocks=ext-tsp -reorder-functions=hfsort \
+    -split-functions -split-all-cold -dyno-stats
+```
+
+> [!NOTE]
+> BOLT is Linux-only (`llvm-bolt` from LLVM 17+). Auto-skipped on macOS.
+
+---
+
+## 5. Flamegraph & Profiling Integration
+
+Every benchmark run produces CPU flamegraph SVGs per candidate:
+```
+results/run_<timestamp>/
+├── report.md
+├── hardware_spec.json
+├── raw_metrics.json
+├── flamegraphs/
+│   ├── lb-proxy-hyper-c1000.svg
+│   ├── lb-proxy-pingora-c1000.svg
+│   ├── lb-proxy-monoio-c1000.svg
+│   └── traefik-c1000.svg              # Go pprof capture
+└── plots/
+    ├── throughput_comparison.svg
+    ├── latency_cdf.svg
+    └── memory_footprint.svg
+```
+
+---
+
+## 6. Monoio + kube-rs Hybrid Runtime Architecture
+
+> [!IMPORTANT]
+> `kube-rs` requires Tokio. The Monoio candidate uses a **split-runtime design**: dedicated Tokio thread for control plane, Monoio thread-per-core workers for data plane, communicating via `ArcSwap`.
+
+```rust
+fn main() {
+    let route_table = Arc::new(ArcSwap::from_pointee(RouteTable::empty()));
+
+    // Dedicated Tokio thread for kube-rs control plane
+    let rt_clone = route_table.clone();
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all().build().unwrap()
+            .block_on(run_k8s_controller(rt_clone));
+    });
+
+    // Monoio thread-per-core data plane workers
+    for cpu in 0..num_cpus::get() {
+        let rt = route_table.clone();
+        std::thread::spawn(move || {
+            monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
+                .enable_all().build().unwrap()
+                .block_on(run_proxy_worker(cpu, rt));
+        });
+    }
+}
+```
+
+---
+
+## 7. Reproducibility & Fair Comparison Guarantees
+
+### 7.1. Pinned Infrastructure
+| Component | Pinned Version |
+| :--- | :--- |
+| **Kind** | `v0.32.0` |
+| **Kind node image** | `kindest/node:v1.31.6` |
+| **Gateway API CRDs** | `v1.2.1` |
+| **Traefik** | `traefik:v3.7.12` (image tag + digest) |
+| **Rust toolchain** | `1.97.1` (via `rust-toolchain.toml`) |
+
+### 7.2. Automatic Hardware Spec Collection
+```json
+{
+  "cpu_model": "Apple M3 Max",
+  "cpu_cores_physical": 14,
+  "ram_total_gb": 36,
+  "os": "macOS 15.5",
+  "kernel": "Darwin 24.5.0",
+  "docker_version": "29.6.2",
+  "rust_version": "1.97.1",
+  "kind_version": "0.32.0"
+}
+```
+
+### 7.3. Fair Warm-Up Protocol
+| Phase | Duration | Purpose |
+| :--- | :--- | :--- |
+| **Cold Start** | 3s idle | Runtime initialization |
+| **Warm-Up Traffic** | 15s at 50% concurrency | Stabilize pools, GC heap (Go), page faults (Rust) |
+| **GC Settle (Go)** | 5s idle | Go GC sweep completion |
+| **Measurement** | 30s (configurable) | Actual data collection |
+
+---
+
+## 8. Benchmark Scenarios
+
+### Scenario 1: Maximum Throughput & Tail Latency Sweep
+- **Concurrency**: 100, 1,000, 5,000, 10,000, 25,000.
+- **Payloads**: 1 KB, 64 KB, 1 MB.
+- **Builds**: Standard release vs. PGO-optimized.
+
+### Scenario 2: Connection Density & Memory Footprint (C10K - C50K)
+- 10,000 to 50,000 persistent connections (95% idle, 5% active).
+- Measure RSS Memory: Go GC vs. Rust jemalloc.
+
+### Scenario 3: Route Churn & Tail Latency Jitter
+- Steady 20,000 RPS + HTTPRoute mutations at 10-500 Hz.
+- Measure p99.99 spikes and 502/503 dropped requests.
+
+### Scenario 4: Microbenchmarks (Criterion)
+- `matchit` vs `route-recognizer`.
+- `ArcSwap` vs `parking_lot::RwLock` vs `tokio::sync::RwLock`.
+- `simdutf8` vs `std::str::from_utf8`.
+
+### Scenario 5: PGO Impact Delta
+- Standard release vs. PGO-optimized on identical Scenario 1 workloads.
+
+---
+
+## 9. Phased Implementation Roadmap
+
+### Phase 1: Workspace & `lb-core` Crate
+1. Initialize Cargo workspace (`Rust 2024`, `rustc 1.97.1`) with `rust-toolchain.toml`, release profiles, and `[workspace.dependencies]`.
+2. Build `crates/core` (`lb-core`):
+   - `route_table.rs`: `ArcSwap<matchit 0.9::Router>` wrapper with hostname matching.
+   - `target.rs`: Upstream endpoints, Round-Robin / Weighted load balancer.
+   - `filter.rs`: Gateway API header modifiers and URL rewrite.
+   - `alloc.rs`: `jemalloc` / `mimalloc` allocator setup module.
+3. Unit tests for route matching and load balancing.
+
+### Phase 2: `lb-bench` Crate — Harness, Metrics & Mock
+1. Build `crates/bench` (`lb-bench`) as a library + binary crate.
+2. Implement `harness/`: runner lifecycle, warm-up protocol, scenario definitions.
+3. Implement `load/`: async HTTP load generator + standardized payloads.
+4. Implement `metrics/`: `HdrHistogram 7.6` latency recorder, CPU/RSS sampler, hardware auto-detection.
+5. Implement `mock/`: ultra-fast mock upstream HTTP echo server.
+6. Implement `report/`: Markdown, CSV, and hardware spec report generators.
+7. Build workspace-level Criterion microbenchmarks (`benches/`).
+
+### Phase 3: Proxy Candidate Crates
+1. **`crates/proxy-hyper`** (`lb-proxy-hyper`):
+   - Library + binary. `jemalloc 0.7`, `TCP_NODELAY`, `SO_REUSEPORT`, `hyper 1.11` + `tokio 1.53`.
+   - SIMD parsing + `ArcSwap<matchit 0.9>` + `kube 4.2` Gateway API reconciler.
+2. **`crates/proxy-pingora`** (`lb-proxy-pingora`):
+   - Library + binary. `jemalloc 0.7`, `pingora 0.8` engine + `matchit 0.9` + `kube 4.2`.
+3. **`crates/proxy-monoio`** (`lb-proxy-monoio`):
+   - Library + binary. `mimalloc 0.1.52`, hybrid Tokio/Monoio runtime, `kube 4.2`.
+4. Wire all proxy crates as dependencies of `lb-bench`.
+
+### Phase 4: PGO, Profiling & Flamegraph Tooling
+1. Write `scripts/build_pgo.sh`, `scripts/build_bolt.sh`.
+2. Implement `profiling/` module in `lb-bench`: flamegraph capture + Go pprof.
+3. Create `examples/pgo_routes.yaml`.
+
+### Phase 5: Kubernetes (`kind`) Environment & Traefik v3.7.12
+1. Create `k8s/` manifests pinned to `kindest/node:v1.31.6`.
+2. Install Gateway API v1.2.1 CRDs.
+3. Deploy `traefik:v3.7.12` with Gateway API + pprof enabled.
+4. Implement `k8s/` module in `lb-bench`: Kind lifecycle, deployer, churn injector.
+5. Create optimized Dockerfiles + `scripts/build_and_load_images.sh`.
+
+### Phase 6: Execution & Analysis
+1. Execute Criterion microbenchmarks.
+2. Run standalone benchmarks (standard + PGO).
+3. Capture flamegraphs.
+4. Run full `kind` benchmark suite vs. Traefik v3.7.12.
+5. Generate final comparative report.
+
+---
+
+## 10. Verification & Validation Plan
+
+### Automated Verification
+- `cargo test --workspace`
+- `cargo bench`
+- `cargo clippy -- -D warnings`
+- `cargo fmt --check`
+
+### Execution Commands
+```bash
+# Microbenchmarks
+RUSTFLAGS="-C target-cpu=native" cargo bench
+
+# PGO builds
+./scripts/build_pgo.sh lb-proxy-hyper
+./scripts/build_pgo.sh lb-proxy-pingora
+./scripts/build_pgo.sh lb-proxy-monoio
+
+# Standalone benchmarks
+RUSTFLAGS="-C target-cpu=native" cargo run --release --bin lb-bench -- \
+    --mode local --concurrency 100,1000,5000,10000 --duration 30s --warmup 15s
+
+# Flamegraphs
+./scripts/capture_flamegraphs.sh --concurrency 1000
+
+# Kubernetes benchmarks (including Traefik v3.7.12)
+./scripts/setup_kind.sh
+./scripts/build_and_load_images.sh
+RUSTFLAGS="-C target-cpu=native" cargo run --release --bin lb-bench -- \
+    --mode k8s --all --concurrency 100,1000,5000,10000 --churn-rate 50 --warmup 15s
+```
+
+---

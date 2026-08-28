@@ -1,0 +1,41 @@
+[package]
+name = "lb-proxy-monoio"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Monoio thread-per-core reverse proxy candidate"
+
+[lib]
+name = "lb_proxy_monoio"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lb-proxy-monoio"
+path = "src/main.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+monoio.workspace = true
+tokio.workspace = true
+http.workspace = true
+hyper = { workspace = true, features = ["server", "client", "http1", "http2"] }
+hyper-util.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+httparse.workspace = true
+memchr.workspace = true
+arc-swap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+anyhow.workspace = true
+num_cpus.workspace = true
+# Declared here, not in lb-core, so feature unification cannot swap it.
+mimalloc.workspace = true
+
+[features]
+default = ["k8s"]
+k8s = ["lb-core/k8s"]

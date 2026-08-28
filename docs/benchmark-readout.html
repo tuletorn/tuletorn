@@ -1,0 +1,1008 @@
+<title>lb Benchmark Readout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@700;900&family=JetBrains+Mono:wght@400;500;700&family=Source+Sans+3:wght@400;600&display=swap">
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens. Light is the base; dark redefines only the values.
+   Three states: bare :root, prefers-color-scheme, [data-theme].
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --ground:      #EEF1F4;
+  --surface:     #FFFFFF;
+  --surface-alt: #F6F8F9;
+  --ink:         #111A20;
+  --ink-2:       #3C4C57;
+  --muted:       #5C6B76;
+  --hairline:    #D8DFE5;
+  --hairline-2:  #E8EDF1;
+
+  --accent:      #0079A3;
+  --accent-ink:  #005E80;
+
+  --s-hyper:     #0092AD;
+  --s-pingora:   #C25E00;
+  --s-monoio:    #6B4FA0;
+
+  --good:        #2F7D4E;
+  --good-bg:     #E6F2EA;
+  --bad:         #B23A2E;
+  --bad-bg:      #FAEAE8;
+
+  --grid:        #E4EAEE;
+  --shadow:      0 1px 2px rgba(17, 26, 32, .05), 0 8px 24px -12px rgba(17, 26, 32, .12);
+
+  --step--1: .78rem;
+  --step-0:  1rem;
+  --step-1:  1.28rem;
+  --step-2:  1.66rem;
+  --step-3:  2.3rem;
+  --step-4:  3.4rem;
+
+  --measure: 68ch;
+  --pad: clamp(1.15rem, 4vw, 3rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0D1317;
+    --surface:     #141C22;
+    --surface-alt: #1A242B;
+    --ink:         #E3EAEE;
+    --ink-2:       #B7C6D0;
+    --muted:       #8FA1AD;
+    --hairline:    #25313A;
+    --hairline-2:  #1D272E;
+
+    --accent:      #2FB2CE;
+    --accent-ink:  #62CDE4;
+
+    --s-hyper:     #189BB5;
+    --s-pingora:   #C86D18;
+    --s-monoio:    #8467BE;
+
+    --good:        #4BAA72;
+    --good-bg:     #16281E;
+    --bad:         #E0705F;
+    --bad-bg:      #2B1A18;
+
+    --grid:        #222E36;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #0D1317;
+  --surface:     #141C22;
+  --surface-alt: #1A242B;
+  --ink:         #E3EAEE;
+  --ink-2:       #B7C6D0;
+  --muted:       #8FA1AD;
+  --hairline:    #25313A;
+  --hairline-2:  #1D272E;
+
+  --accent:      #2FB2CE;
+  --accent-ink:  #62CDE4;
+
+  --s-hyper:     #189BB5;
+  --s-pingora:   #C86D18;
+  --s-monoio:    #8467BE;
+
+  --good:        #4BAA72;
+  --good-bg:     #16281E;
+  --bad:         #E0705F;
+  --bad-bg:      #2B1A18;
+
+  --grid:        #222E36;
+  --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+}
+
+/* ── base ───────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: Chivo, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 900;
+  letter-spacing: -.022em;
+  text-wrap: balance;
+  margin: 0;
+  line-height: 1.08;
+}
+
+p { margin: 0; max-width: var(--measure); }
+a { color: var(--accent-ink); text-underline-offset: .18em; }
+a:focus-visible,
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+
+code, .mono, .num {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap { max-width: 1180px; margin-inline: auto; padding-inline: var(--pad); }
+
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── masthead ───────────────────────────────────────────────── */
+.masthead {
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  padding-block: clamp(2.2rem, 6vw, 3.6rem) 0;
+}
+
+.masthead-grid {
+  display: grid;
+  gap: clamp(1.6rem, 4vw, 3rem);
+  grid-template-columns: 1fr;
+  align-items: end;
+}
+@media (min-width: 900px) { .masthead-grid { grid-template-columns: 1.55fr 1fr; } }
+
+.title { font-size: var(--step-4); }
+.title .lb {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: var(--accent-ink);
+  letter-spacing: -.04em;
+}
+.standfirst { color: var(--ink-2); font-size: var(--step-1); margin-top: 1rem; }
+
+/* Run identity block — a lab report header, keyed rows. */
+.identity {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .18rem 1.4rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: var(--step--1);
+  border-left: 2px solid var(--accent);
+  padding-left: 1.1rem;
+}
+.identity dt { color: var(--muted); }
+.identity dd { margin: 0; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.masthead-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-top: clamp(1.8rem, 4vw, 2.6rem);
+  padding-block: .9rem;
+  border-top: 1px solid var(--hairline-2);
+}
+
+/* ── gate chips ─────────────────────────────────────────────── */
+.gate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .5rem;
+  padding: .3rem .7rem .34rem;
+  border-radius: 2px;
+  background: var(--good-bg);
+  color: var(--good);
+  font-family: "JetBrains Mono", monospace;
+  font-size: var(--step--1);
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--good) 26%, transparent);
+}
+.gate::before { content: "PASS"; font-weight: 700; font-size: .64rem; letter-spacing: .1em; }
+.gate .was { color: var(--muted); font-size: .72rem; }
+
+/* ── sections ───────────────────────────────────────────────── */
+section { padding-block: clamp(2.8rem, 7vw, 4.6rem); border-bottom: 1px solid var(--hairline); }
+section:last-of-type { border-bottom: 0; }
+
+.sec-head { display: flex; flex-direction: column; gap: .55rem; margin-bottom: 2rem; }
+.sec-head h2 { font-size: var(--step-3); }
+.sec-head p { color: var(--muted); }
+
+/* ── cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+}
+
+.chart-grid { display: grid; gap: 1.25rem; grid-template-columns: 1fr; }
+@media (min-width: 820px) { .chart-grid.two { grid-template-columns: 1fr 1fr; } }
+
+.chart-card { padding: 1.3rem 1.4rem 1.1rem; }
+.chart-card h3 {
+  font-size: var(--step-0);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  margin-bottom: .15rem;
+}
+.chart-card .sub { color: var(--muted); font-size: var(--step--1); margin-bottom: 1.1rem; }
+
+.legend { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-top: 1rem; }
+.legend-item {
+  display: inline-flex; align-items: center; gap: .45rem;
+  font-family: "JetBrains Mono", monospace; font-size: .74rem; color: var(--ink-2);
+}
+.swatch { width: 11px; height: 11px; border-radius: 2px; flex: none; }
+
+/* ── ledger table ───────────────────────────────────────────── */
+.scroll-x { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+caption { text-align: left; color: var(--muted); font-size: var(--step--1); padding-bottom: .7rem; }
+th, td { text-align: left; padding: .62rem .85rem; border-bottom: 1px solid var(--hairline-2); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", monospace;
+  font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--hairline); white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ledger td:first-child { font-weight: 600; min-width: 12rem; }
+.was-val { color: var(--bad); font-family: "JetBrains Mono", monospace; font-size: .8rem; }
+.now-val { color: var(--good); font-family: "JetBrains Mono", monospace; font-size: .8rem; }
+.arrow { color: var(--muted); padding-inline: .1rem; }
+
+/* ── speedup rows ───────────────────────────────────────────── */
+.speedups { display: grid; gap: 1.05rem; }
+.speedup { display: grid; grid-template-columns: 1fr; gap: .35rem; }
+.speedup-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.speedup-name { font-weight: 600; }
+.speedup-name small { display: block; color: var(--muted); font-weight: 400; font-size: .8rem; }
+.speedup-x {
+  font-family: Chivo, sans-serif; font-weight: 900; font-size: var(--step-2);
+  color: var(--accent-ink); letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+}
+.bar-track { height: 10px; background: var(--surface-alt); border-radius: 2px; overflow: hidden; border: 1px solid var(--hairline-2); }
+.bar-fill { height: 100%; background: var(--accent); border-radius: 0 2px 2px 0; }
+.speedup-detail { font-family: "JetBrains Mono", monospace; font-size: .74rem; color: var(--muted); }
+
+/* ── stat tiles ─────────────────────────────────────────────── */
+.tiles { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.tile { padding: 1.15rem 1.25rem; }
+.tile .label { font-family: "JetBrains Mono", monospace; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.tile .value { font-family: Chivo, sans-serif; font-weight: 900; font-size: var(--step-3); letter-spacing: -.035em; margin-top: .35rem; font-variant-numeric: tabular-nums; }
+.tile .foot { color: var(--muted); font-size: var(--step--1); margin-top: .2rem; }
+
+/* ── run instructions ───────────────────────────────────────── */
+pre {
+  margin: 0;
+  background: var(--surface-alt);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: .8rem;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent-ink); font-weight: 500; }
+
+.run-grid { display: grid; gap: 1.25rem; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .run-grid { grid-template-columns: 1fr 1fr; } }
+.run-block h3 { font-size: var(--step-0); margin-bottom: .2rem; }
+.run-block p { color: var(--muted); font-size: var(--step--1); margin-bottom: .7rem; }
+
+.note {
+  border-left: 2px solid var(--accent);
+  padding: .1rem 0 .1rem 1.1rem;
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+
+/* ── chart internals ────────────────────────────────────────── */
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+.axis-line { stroke: var(--hairline); stroke-width: 1; }
+.grid-line { stroke: var(--grid); stroke-width: 1; }
+.axis-text { fill: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 10px; font-variant-numeric: tabular-nums; }
+.bar-label { fill: var(--ink); font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cat-label { fill: var(--ink-2); font-family: "JetBrains Mono", monospace; font-size: 11px; }
+.hit { fill: transparent; cursor: crosshair; }
+.series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.series-dot { stroke: var(--surface); stroke-width: 2; }
+
+.tooltip {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -115%);
+  transition: opacity .1s linear;
+  background: var(--ink);
+  color: var(--ground);
+  border-radius: 3px;
+  padding: .45rem .6rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, .45);
+}
+.tooltip.on { opacity: 1; }
+.tooltip .tt-k { opacity: .68; }
+
+footer {
+  padding-block: 2.4rem 3.4rem;
+  color: var(--muted);
+  font-size: var(--step--1);
+  border-top: 1px solid var(--hairline);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="masthead-grid">
+      <div>
+        <p class="eyebrow">Measurement report · Scenario 1, throughput sweep</p>
+        <h1 class="title"><span class="lb">lb</span> proxy data planes,<br>measured properly</h1>
+        <p class="standfirst">
+          Three Rust reverse proxies on one shared routing core — Hyper, Pingora and
+          Monoio — with twelve defects fixed that had been quietly making the previous
+          numbers meaningless.
+        </p>
+      </div>
+
+      <dl class="identity">
+        <dt>host</dt>       <dd>Apple M1 · 8 physical / 8 logical</dd>
+        <dt>memory</dt>     <dd>16.0 GB</dd>
+        <dt>os</dt>         <dd>Darwin 26.6.2 · kernel 25.6.0</dd>
+        <dt>toolchain</dt>  <dd>rustc 1.97.1 (8bab26f4f)</dd>
+        <dt>target-cpu</dt> <dd>aarch64 · neon</dd>
+        <dt>profile</dt>    <dd>release · lto=fat · cgu=1</dd>
+        <dt>captured</dt>   <dd>2026-08-28T13:44:35Z</dd>
+      </dl>
+    </div>
+
+    <div class="masthead-foot">
+      <span class="eyebrow" style="margin-right:.4rem">Gates</span>
+      <span class="gate">cargo&nbsp;test <span class="was">212 · was 2</span></span>
+      <span class="gate">clippy&nbsp;-D&nbsp;warnings <span class="was">was failing</span></span>
+      <span class="gate">cargo&nbsp;fmt&nbsp;--check <span class="was">was 36 diffs</span></span>
+      <span class="gate">cargo&nbsp;bench <span class="was">runs</span></span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ── 1. The fix ledger ─────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">01 · What changed</p>
+        <h2>The numbers before this were not measurements</h2>
+        <p>
+          Every row below was reproduced by running the code, not read off the source.
+          Six are correctness defects in the proxies; six are defects in the harness that
+          would have produced confident, wrong figures.
+        </p>
+      </div>
+
+      <div class="card scroll-x">
+        <table class="ledger">
+          <caption>Verified by running each proxy against a live upstream and inspecting what it actually sent.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Defect</th>
+              <th scope="col">Before</th>
+              <th scope="col">After</th>
+              <th scope="col">Why it mattered</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Monoio body relay</td>
+              <td><span class="was-val">20 000 B → 8 077 B</span></td>
+              <td><span class="now-val">exact at 1 KB / 64 KB / 1 MB</span></td>
+              <td>Truncated the body while still forwarding the upstream’s <code>Content-Length</code>. Silent corruption.</td>
+            </tr>
+            <tr>
+              <td>Monoio keep-alive</td>
+              <td><span class="was-val">closed after 1 request</span></td>
+              <td><span class="now-val">3 requests / 1 connection</span></td>
+              <td>Every request paid a fresh downstream accept and upstream connect, so the benchmark measured handshakes.</td>
+            </tr>
+            <tr>
+              <td>Root path <code>/</code></td>
+              <td><span class="was-val">404 hyper · 502 monoio</span></td>
+              <td><span class="now-val">200 on all three</span></td>
+              <td>matchit catch-alls need one segment, so the default <code>PathPrefix: /</code> route never matched the root.</td>
+            </tr>
+            <tr>
+              <td>HTTP/2</td>
+              <td><span class="was-val">502 hyper · no listener elsewhere</span></td>
+              <td><span class="now-val">200/2 on all three</span></td>
+              <td>Downstream version leaked to an h1 upstream pool. The plan sweeps both protocols.</td>
+            </tr>
+            <tr>
+              <td>Worker threads (8-core)</td>
+              <td><span class="was-val">9 / 4 / 5</span></td>
+              <td><span class="now-val">9 / 11 / 9</span></td>
+              <td>Pingora’s <code>ServerConf</code> default is one thread — it was raced single-threaded against eight.</td>
+            </tr>
+            <tr>
+              <td>Allocator selection</td>
+              <td><span class="was-val">flipped with the build command</span></td>
+              <td><span class="now-val">jemalloc / jemalloc / mimalloc</span></td>
+              <td>A feature-gated <code>#[global_allocator]</code> in a shared lib; Cargo unification silently swapped it.</td>
+            </tr>
+            <tr>
+              <td>Hop-by-hop headers</td>
+              <td><span class="was-val">forwarded verbatim</span></td>
+              <td><span class="now-val">stripped, incl. Connection-nominated</span></td>
+              <td>Traefik strips them, so the Rust candidates were doing strictly less work per request.</td>
+            </tr>
+            <tr>
+              <td><code>X-Forwarded-For</code></td>
+              <td><span class="was-val">absent</span></td>
+              <td><span class="now-val">chained on all three</span></td>
+              <td>Same fairness problem: a real gateway pays for this on every request.</td>
+            </tr>
+            <tr>
+              <td>PGO profile pass</td>
+              <td><span class="was-val">0 requests to the instrumented binary</span></td>
+              <td><span class="now-val">drives real load; fails loudly on 0</span></td>
+              <td>Load went to a proxy the harness started itself, so the “PGO build” was a plain release build.</td>
+            </tr>
+            <tr>
+              <td>CPU / RSS attribution</td>
+              <td><span class="was-val">the harness process</span></td>
+              <td><span class="now-val">proxy PID + children</span></td>
+              <td>Proxy, generator and mock upstream shared one process; the figure summed all three.</td>
+            </tr>
+            <tr>
+              <td>Coordinated omission</td>
+              <td><span class="was-val">not implemented</span></td>
+              <td><span class="now-val">dual histogram, both reported</span></td>
+              <td>Required by the plan. A closed loop cannot see the requests it was too blocked to send.</td>
+            </tr>
+            <tr>
+              <td><code>--mode</code> / <code>--candidate</code></td>
+              <td><span class="was-val">parsed, then ignored</span></td>
+              <td><span class="now-val">4 candidates, local + k8s</span></td>
+              <td>Every run benchmarked Hyper locally and labelled the row with whatever you asked for.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 2. Throughput ─────────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">02 · Throughput</p>
+        <h2>Requests per second</h2>
+        <p>
+          1 KiB responses over HTTP/1.1, five-second windows, each candidate in its own
+          process on all eight cores. Zero transport failures and zero error responses
+          across every window.
+        </p>
+      </div>
+
+      <div class="chart-grid two">
+        <div class="card chart-card">
+          <h3>50 connections</h3>
+          <p class="sub">Requests / second — higher is better</p>
+          <svg viewBox="0 0 460 168" role="img" aria-label="Throughput at 50 connections: Hyper 77,619; Pingora 71,200; Monoio 58,596 requests per second." data-chart="rps50"></svg>
+        </div>
+        <div class="card chart-card">
+          <h3>200 connections</h3>
+          <p class="sub">Requests / second — higher is better</p>
+          <svg viewBox="0 0 460 168" role="img" aria-label="Throughput at 200 connections: Hyper 81,365; Pingora 74,876; Monoio 60,520 requests per second." data-chart="rps200"></svg>
+        </div>
+      </div>
+
+      <div class="legend" id="legend-main"></div>
+    </div>
+  </section>
+
+  <!-- ── 3. Latency ────────────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">03 · Tail latency</p>
+        <h2>Where the distributions separate</h2>
+        <p>
+          Latency by percentile, log scale. The median tells you almost nothing here —
+          the candidates only pull apart past p99, and Monoio’s curve flattens where the
+          other two keep climbing.
+        </p>
+      </div>
+
+      <div class="chart-grid two">
+        <div class="card chart-card">
+          <h3>50 connections</h3>
+          <p class="sub">Latency by percentile — lower is better</p>
+          <svg viewBox="0 0 480 260" role="img" aria-label="Latency percentile curves at 50 connections. Full values in the table below." data-chart="lat50"></svg>
+        </div>
+        <div class="card chart-card">
+          <h3>200 connections</h3>
+          <p class="sub">Latency by percentile — lower is better</p>
+          <svg viewBox="0 0 480 260" role="img" aria-label="Latency percentile curves at 200 connections. Full values in the table below." data-chart="lat200"></svg>
+        </div>
+      </div>
+
+      <div class="legend" id="legend-lat"></div>
+
+      <div class="card scroll-x" style="margin-top:1.5rem">
+        <table>
+          <caption>All recorded percentiles, in milliseconds. HdrHistogram, 3 significant figures.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Candidate</th><th class="n" scope="col">Conn</th>
+              <th class="n" scope="col">p50</th><th class="n" scope="col">p90</th>
+              <th class="n" scope="col">p95</th><th class="n" scope="col">p99</th>
+              <th class="n" scope="col">p99.9</th><th class="n" scope="col">p99.99</th>
+              <th class="n" scope="col">max</th>
+            </tr>
+          </thead>
+          <tbody id="lat-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 4. Footprint ──────────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">04 · Footprint</p>
+        <h2>Cost of the throughput</h2>
+        <p>
+          Sampled from each candidate’s own process and its children — never from the
+          harness. Monoio buys its lower throughput back in CPU: it serves 74&nbsp;% of
+          Hyper’s requests for 30&nbsp;% of the CPU and 72&nbsp;% of the memory.
+        </p>
+      </div>
+
+      <div class="chart-grid two">
+        <div class="card chart-card">
+          <h3>CPU under load</h3>
+          <p class="sub">Mean % of one core, 200 connections · 800 % available</p>
+          <svg viewBox="0 0 460 168" role="img" aria-label="Mean CPU at 200 connections: Hyper 160 percent, Pingora 183 percent, Monoio 48 percent of one core." data-chart="cpu"></svg>
+        </div>
+        <div class="card chart-card">
+          <h3>Peak resident memory</h3>
+          <p class="sub">MiB RSS, 200 connections</p>
+          <svg viewBox="0 0 460 168" role="img" aria-label="Peak RSS at 200 connections: Hyper 31.4 MiB, Pingora 47.0 MiB, Monoio 22.7 MiB." data-chart="rss"></svg>
+        </div>
+      </div>
+
+      <div class="legend" id="legend-res"></div>
+
+      <div class="tiles" style="margin-top:1.6rem">
+        <div class="card tile">
+          <div class="label">Efficiency leader</div>
+          <div class="value" style="color:var(--s-monoio)">1 266</div>
+          <div class="foot">rps per CPU % — Monoio, vs 509 Hyper and 409 Pingora</div>
+        </div>
+        <div class="card tile">
+          <div class="label">Throughput leader</div>
+          <div class="value" style="color:var(--s-hyper)">81 365</div>
+          <div class="foot">rps at 200 connections — Hyper, 8.7 % ahead of Pingora</div>
+        </div>
+        <div class="card tile">
+          <div class="label">Tightest tail</div>
+          <div class="value" style="color:var(--s-monoio)">11.4 ms</div>
+          <div class="foot">max at 200 conn — Monoio, vs 32.0 Hyper and 44.8 Pingora</div>
+        </div>
+        <div class="card tile">
+          <div class="label">Requests measured</div>
+          <div class="value">2.12 M</div>
+          <div class="foot">across six windows, zero failures and zero 4xx/5xx</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 5. Optimizations ──────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">05 · Hot-path primitives</p>
+        <h2>What the SIMD and asm actually bought</h2>
+        <p>
+          Criterion microbenchmarks, <code>target-cpu=native</code> on Apple M1. Each
+          vector routine has a scalar twin and a differential test across every length
+          from 0 to 200 bytes, because a silently wrong case-fold corrupts routing rather
+          than crashing it.
+        </p>
+      </div>
+
+      <div class="card chart-card">
+        <div class="speedups" id="speedups"></div>
+      </div>
+
+      <p class="note" style="margin-top:1.4rem">
+        The cycle counter reads <code>cntvct_el0</code> on AArch64 and <code>rdtsc</code> on
+        x86-64 through inline assembly. At these request rates two <code>Instant::now()</code>
+        calls per request is a measurable cost sitting inside the number being measured.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── 6. Running it ─────────────────────────────────────── -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">06 · Reproducing this</p>
+        <h2>Running the benchmark</h2>
+        <p>
+          Full instructions live in <code>README.md</code> at the repository root. These are
+          the paths most people want.
+        </p>
+      </div>
+
+      <div class="run-grid">
+        <div class="run-block">
+          <h3>Local sweep</h3>
+          <p>Each candidate is launched as its own process on loopback.</p>
+<pre><span class="c"># build every binary</span>
+cargo build <span class="k">--release</span>
+
+<span class="c"># smoke test: all three candidates, ~2 minutes</span>
+cargo run <span class="k">--release --bin</span> lb-bench <span class="k">--</span> <span class="k">--all --quick</span>
+
+<span class="c"># the full Scenario 1 sweep (plan §8.1)</span>
+cargo run <span class="k">--release --bin</span> lb-bench <span class="k">--</span> \
+    <span class="k">--all --scenario</span> throughput \
+    <span class="k">--concurrency</span> 100,1000,5000,10000,25000 \
+    <span class="k">--payload-sizes</span> 1k,64k,1m \
+    <span class="k">--http</span> h1,h2 \
+    <span class="k">--duration</span> 30s <span class="k">--warmup</span> 15s</pre>
+        </div>
+
+        <div class="run-block">
+          <h3>Verification gates</h3>
+          <p>The four checks from plan §10, all currently passing.</p>
+<pre>cargo test <span class="k">--workspace --all-features</span>
+cargo clippy <span class="k">--workspace --all-targets</span> \
+    <span class="k">--all-features --</span> <span class="k">-D</span> warnings
+cargo fmt <span class="k">--all --check</span>
+<span class="c">RUSTFLAGS</span>=<span class="k">"-C target-cpu=native"</span> cargo bench</pre>
+
+          <h3 style="margin-top:1.6rem">Kubernetes, against Traefik</h3>
+          <p>kind v0.32.0, node v1.31.6, Gateway API v1.2.1 — all pinned.</p>
+<pre>./scripts/setup_kind.sh
+./scripts/build_and_load_images.sh
+kubectl apply <span class="k">-f</span> k8s/traefik/
+kubectl apply <span class="k">-f</span> k8s/rust-proxies/
+kubectl apply <span class="k">-f</span> k8s/routes/benchmark-httproute.yaml
+
+cargo run <span class="k">--release --bin</span> lb-bench <span class="k">--</span> \
+    <span class="k">--mode</span> k8s <span class="k">--all --churn-rate</span> 50</pre>
+        </div>
+      </div>
+
+      <div class="run-grid" style="margin-top:1.4rem">
+        <div class="run-block">
+          <h3>Profile-guided optimization</h3>
+          <p>Three passes; pass&nbsp;2 drives load at the instrumented binary itself.</p>
+<pre>rustup component add llvm-tools   <span class="c"># version-matched</span>
+./scripts/build_pgo.sh lb-proxy-hyper
+./scripts/build_bolt.sh lb-proxy-hyper   <span class="c"># Linux</span></pre>
+        </div>
+        <div class="run-block">
+          <h3>Flamegraphs</h3>
+          <p>Builds the <code>profiling</code> profile — <code>release</code> strips the symbols these need.</p>
+<pre>./scripts/capture_flamegraphs.sh <span class="k">--concurrency</span> 1000
+python3 scripts/plot_results.py \
+    results/run_&lt;stamp&gt;/results.csv</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Generated from <code>results/run_20260828T134435/</code>. Traefik v3.7.12 is deployed
+      and measured in the Kubernetes path; this readout covers the standalone sweep, where
+      the three Rust candidates run on loopback. Percentiles are raw closed-loop values —
+      identical to the coordinated-omission-corrected column, because a closed-loop run has
+      no pacing interval to correct against.
+    </p>
+  </div>
+</footer>
+
+<div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+/* ── data, transcribed from results.csv ─────────────────────── */
+const SERIES = [
+  { key: "hyper",   name: "lb-proxy-hyper",   token: "--s-hyper"   },
+  { key: "pingora", name: "lb-proxy-pingora", token: "--s-pingora" },
+  { key: "monoio",  name: "lb-proxy-monoio",  token: "--s-monoio"  }
+];
+
+const RPS = {
+  50:  { hyper: 77619, pingora: 71200, monoio: 58596 },
+  200: { hyper: 81365, pingora: 74876, monoio: 60520 }
+};
+
+const CPU = { hyper: 159.66, pingora: 183.20, monoio: 47.80 };
+const RSS = { hyper: 31.36,  pingora: 47.02,  monoio: 22.73 };
+
+const PCTL_LABELS = ["p50", "p90", "p95", "p99", "p99.9", "p99.99", "max"];
+/* microseconds, straight from the CSV */
+const LAT = {
+  50: {
+    hyper:   [615, 862, 964, 1370, 2555, 5279, 10607],
+    pingora: [664, 938, 1061, 1729, 3307, 6083, 19999],
+    monoio:  [756, 1076, 1384, 2427, 4651, 7119, 7807]
+  },
+  200: {
+    hyper:   [2317, 3365, 3833, 5823, 10279, 18751, 31983],
+    pingora: [2465, 3919, 4595, 7083, 12775, 21231, 44767],
+    monoio:  [3013, 3873, 4779, 7819, 10671, 11063, 11431]
+  }
+};
+
+const SPEEDUPS = [
+  { name: "SIMD UTF-8 validation", detail: "simdutf8 vs core::str::from_utf8",
+    ctx: "4 KiB multibyte", fast: 380.07, slow: 2818.8, unit: "ns" },
+  { name: "NEON case-insensitive compare", detail: "vector fold vs scalar reference",
+    ctx: "128-byte header name", fast: 15.386, slow: 92.638, unit: "ns" },
+  { name: "FxHash hostname lookup", detail: "multiply-rotate vs SipHash-1-3",
+    ctx: "26-byte hostname", fast: 2.2484, slow: 10.432, unit: "ns" },
+  { name: "Inline-asm cycle counter", detail: "cntvct_el0 vs Instant::now()",
+    ctx: "single timestamp read", fast: 0.34805, slow: 19.756, unit: "ns" }
+];
+
+/* ── helpers ────────────────────────────────────────────────── */
+const SVG_NS = "http://www.w3.org/2000/svg";
+const css = t => getComputedStyle(document.documentElement).getPropertyValue(t).trim();
+const fmt = n => n.toLocaleString("en-US");
+const ms  = us => us >= 1000 ? (us / 1000).toFixed(2) : (us / 1000).toFixed(3);
+
+function el(tag, attrs = {}, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/* ── tooltip ────────────────────────────────────────────────── */
+const tip = document.getElementById("tooltip");
+function showTip(evt, html) {
+  tip.innerHTML = html;
+  tip.classList.add("on");
+  tip.style.left = evt.clientX + "px";
+  tip.style.top  = evt.clientY + "px";
+}
+function hideTip() { tip.classList.remove("on"); }
+document.addEventListener("scroll", hideTip, { passive: true });
+
+/* ── horizontal bar chart ───────────────────────────────────── */
+function barChart(svg, values, opts) {
+  const { format = fmt, suffix = "", tipLabel = "" } = opts || {};
+  svg.textContent = "";
+
+  const W = 460, H = 168;
+  const padL = 92, padR = 58, padT = 8, padB = 26;
+  const plotW = W - padL - padR;
+  const rowH  = (H - padT - padB) / SERIES.length;
+  const barH  = 22;
+  const max   = Math.max(...SERIES.map(s => values[s.key])) * 1.04;
+
+  /* recessive grid at quarters */
+  for (let i = 0; i <= 4; i++) {
+    const x = padL + (plotW * i) / 4;
+    svg.appendChild(el("line", { x1: x, y1: padT, x2: x, y2: H - padB, class: "grid-line" }));
+    svg.appendChild(el("text", {
+      x, y: H - padB + 15, class: "axis-text", "text-anchor": i === 0 ? "start" : (i === 4 ? "end" : "middle")
+    }, format((max * i) / 4, true)));
+  }
+
+  SERIES.forEach((s, i) => {
+    const v  = values[s.key];
+    const cy = padT + rowH * i + rowH / 2;
+    const w  = Math.max(2, (v / max) * plotW);
+    const color = css(s.token);
+
+    svg.appendChild(el("text", {
+      x: padL - 10, y: cy + 4, class: "cat-label", "text-anchor": "end"
+    }, s.key));
+
+    /* 4px rounded data-end, anchored to the baseline at padL */
+    const bar = el("path", {
+      d: `M${padL},${cy - barH / 2} H${padL + w - 4} a4,4 0 0 1 4,4 V${cy + barH / 2 - 4} a4,4 0 0 1 -4,4 H${padL} Z`,
+      fill: color
+    });
+    svg.appendChild(bar);
+
+    svg.appendChild(el("text", {
+      x: padL + w + 8, y: cy + 4, class: "bar-label"
+    }, format(v) + suffix));
+
+    const hit = el("rect", {
+      x: padL, y: cy - rowH / 2, width: plotW + padR, height: rowH, class: "hit"
+    });
+    hit.addEventListener("pointermove", e =>
+      showTip(e, `<strong>${s.name}</strong><br><span class="tt-k">${tipLabel}</span> ${format(v)}${suffix}`));
+    hit.addEventListener("pointerleave", hideTip);
+    svg.appendChild(hit);
+  });
+
+  svg.appendChild(el("line", { x1: padL, y1: padT, x2: padL, y2: H - padB, class: "axis-line" }));
+}
+
+/* ── latency percentile line chart, log y ───────────────────── */
+function latChart(svg, data) {
+  svg.textContent = "";
+
+  const W = 480, H = 260;
+  const padL = 46, padR = 14, padT = 12, padB = 34;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const all = SERIES.flatMap(s => data[s.key]);
+  const lo  = Math.pow(10, Math.floor(Math.log10(Math.min(...all))));
+  const hi  = Math.pow(10, Math.ceil(Math.log10(Math.max(...all))));
+  const y   = v => padT + plotH - (Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) * plotH;
+  const x   = i => padL + (plotW * i) / (PCTL_LABELS.length - 1);
+
+  /* log gridlines at each decade */
+  for (let d = lo; d <= hi; d *= 10) {
+    const yy = y(d);
+    svg.appendChild(el("line", { x1: padL, y1: yy, x2: W - padR, y2: yy, class: "grid-line" }));
+    svg.appendChild(el("text", {
+      x: padL - 8, y: yy + 3.5, class: "axis-text", "text-anchor": "end"
+    }, d >= 1000 ? (d / 1000) + " ms" : d + " µs"));
+  }
+
+  PCTL_LABELS.forEach((label, i) => {
+    svg.appendChild(el("text", {
+      x: x(i), y: H - padB + 16, class: "axis-text",
+      "text-anchor": i === 0 ? "start" : (i === PCTL_LABELS.length - 1 ? "end" : "middle")
+    }, label));
+  });
+
+  SERIES.forEach(s => {
+    const color = css(s.token);
+    const pts = data[s.key].map((v, i) => [x(i), y(v)]);
+    svg.appendChild(el("path", {
+      d: pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" "),
+      class: "series-line", stroke: color
+    }));
+    /* emphasized endpoint, per the mark spec */
+    pts.forEach(([cx, cy], i) => {
+      svg.appendChild(el("circle", {
+        cx, cy, r: i === pts.length - 1 ? 5 : 3.4, fill: color, class: "series-dot"
+      }));
+    });
+  });
+
+  /* crosshair band per percentile column */
+  PCTL_LABELS.forEach((label, i) => {
+    const bandW = plotW / (PCTL_LABELS.length - 1);
+    const hit = el("rect", {
+      x: x(i) - bandW / 2, y: padT, width: bandW, height: plotH, class: "hit"
+    });
+    hit.addEventListener("pointerenter", () => {
+      svg.querySelectorAll(".crosshair").forEach(n => n.remove());
+      svg.insertBefore(el("line", {
+        x1: x(i), y1: padT, x2: x(i), y2: padT + plotH,
+        class: "crosshair", stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "3 3"
+      }), svg.firstChild.nextSibling);
+    });
+    hit.addEventListener("pointermove", e => {
+      const rows = SERIES.map(s =>
+        `<span class="tt-k">${s.key}</span> ${ms(data[s.key][i])} ms`).join("<br>");
+      showTip(e, `<strong>${label}</strong><br>${rows}`);
+    });
+    hit.addEventListener("pointerleave", () => {
+      hideTip();
+      svg.querySelectorAll(".crosshair").forEach(n => n.remove());
+    });
+    svg.appendChild(hit);
+  });
+}
+
+/* ── legends ────────────────────────────────────────────────── */
+function legend(id) {
+  const host = document.getElementById(id);
+  if (!host) return;
+  host.textContent = "";
+  SERIES.forEach(s => {
+    const item = document.createElement("span");
+    item.className = "legend-item";
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = css(s.token);
+    item.appendChild(sw);
+    item.appendChild(document.createTextNode(s.name));
+    host.appendChild(item);
+  });
+}
+
+/* ── speedup rows ───────────────────────────────────────────── */
+function renderSpeedups() {
+  const host = document.getElementById("speedups");
+  host.textContent = "";
+  const maxRatio = Math.max(...SPEEDUPS.map(s => s.slow / s.fast));
+
+  SPEEDUPS.forEach(s => {
+    const ratio = s.slow / s.fast;
+    const row = document.createElement("div");
+    row.className = "speedup";
+    row.innerHTML = `
+      <div class="speedup-head">
+        <span class="speedup-name">${s.name}<small>${s.detail} · ${s.ctx}</small></span>
+        <span class="speedup-x">${ratio < 10 ? ratio.toFixed(1) : Math.round(ratio)}&times;</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(ratio / maxRatio) * 100}%"></div></div>
+      <div class="speedup-detail">${s.fast} ${s.unit} &nbsp;vs&nbsp; ${s.slow} ${s.unit}</div>`;
+    host.appendChild(row);
+  });
+}
+
+/* ── latency table ──────────────────────────────────────────── */
+function renderLatTable() {
+  const body = document.getElementById("lat-table");
+  body.textContent = "";
+  [50, 200].forEach(conn => {
+    SERIES.forEach(s => {
+      const tr = document.createElement("tr");
+      const cells = [
+        `<td><span class="swatch" style="background:${css(s.token)};display:inline-block;margin-right:.5rem;vertical-align:middle"></span>${s.name}</td>`,
+        `<td class="n">${conn}</td>`,
+        ...LAT[conn][s.key].map(v => `<td class="n">${ms(v)}</td>`)
+      ];
+      tr.innerHTML = cells.join("");
+      body.appendChild(tr);
+    });
+  });
+}
+
+/* ── draw everything, and redraw when the theme changes ─────── */
+function draw() {
+  const q = sel => document.querySelector(sel);
+  barChart(q('[data-chart="rps50"]'),  RPS[50],  { tipLabel: "rps" });
+  barChart(q('[data-chart="rps200"]'), RPS[200], { tipLabel: "rps" });
+  barChart(q('[data-chart="cpu"]'), CPU, {
+    format: v => v.toFixed(0), suffix: "%", tipLabel: "mean CPU"
+  });
+  barChart(q('[data-chart="rss"]'), RSS, {
+    format: v => v.toFixed(1), suffix: " MiB", tipLabel: "peak RSS"
+  });
+  latChart(q('[data-chart="lat50"]'),  LAT[50]);
+  latChart(q('[data-chart="lat200"]'), LAT[200]);
+
+  legend("legend-main");
+  legend("legend-lat");
+  legend("legend-res");
+  renderSpeedups();
+  renderLatTable();
+}
+
+draw();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+new MutationObserver(draw).observe(document.documentElement, {
+  attributes: true, attributeFilter: ["data-theme"]
+});
+</script>

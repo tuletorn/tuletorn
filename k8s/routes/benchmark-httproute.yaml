@@ -1,0 +1,31 @@
+# The route every candidate serves during a benchmark run.
+#
+# It names all four Gateways as parents. Whichever candidates are deployed pick
+# it up; the remaining parentRefs simply stay unresolved. Keeping one route
+# object shared across candidates is what guarantees they are matching against
+# byte-identical rules, so a throughput difference cannot come from one of them
+# having been given a different rule set to evaluate.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: benchmark-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+    - name: lb-gateway-hyper
+      namespace: default
+    - name: lb-gateway-pingora
+      namespace: default
+    - name: lb-gateway-monoio
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: mock-upstream
+          port: 80
+          weight: 1

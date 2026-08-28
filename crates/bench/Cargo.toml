@@ -1,0 +1,49 @@
+[package]
+name = "lb-bench"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Benchmark harness comparing Hyper, Pingora and Monoio proxies against Traefik"
+
+[lib]
+name = "lb_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lb-bench"
+path = "src/main.rs"
+
+[[bin]]
+name = "lb-mock-upstream"
+path = "src/bin/lb-mock-upstream.rs"
+
+[dependencies]
+lb-core = { path = "../core" }
+parking_lot.workspace = true
+num_cpus.workspace = true
+tokio = { workspace = true, features = ["full", "parking_lot", "process", "signal"] }
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+hdrhistogram.workspace = true
+sysinfo.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tikv-jemallocator.workspace = true
+kube = { workspace = true, optional = true }
+k8s-openapi = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[features]
+default = ["k8s"]
+k8s = ["dep:kube", "dep:k8s-openapi", "lb-core/k8s"]

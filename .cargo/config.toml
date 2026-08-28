@@ -1,0 +1,16 @@
+# Plan §4.1 — maximum vectorization for host-native builds.
+# Overridable by exporting RUSTFLAGS (cross-compiled container builds do this,
+# because `target-cpu=native` is not portable into a kind node image).
+[build]
+rustflags = ["-C", "target-cpu=native", "-C", "llvm-args=-inline-threshold=600"]
+
+# Portable-but-modern baselines for the Linux container targets used by kind.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v3", "-C", "llvm-args=-inline-threshold=600"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=neoverse-n1", "-C", "llvm-args=-inline-threshold=600"]
+
+[alias]
+xtest = "test --workspace --all-features"
+xlint = "clippy --workspace --all-targets --all-features -- -D warnings"

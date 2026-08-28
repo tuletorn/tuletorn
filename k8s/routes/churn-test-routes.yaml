@@ -1,0 +1,84 @@
+# Route churn fixtures (plan §8, Scenario 3).
+#
+# The churn injector alternates `benchmark-route`'s backendRef between
+# `mock-upstream` and `mock-upstream-b` at 10-500 Hz. Both must exist and be
+# ready before churn starts, or the measurement records 503s from a missing
+# backend rather than the control-plane propagation delay it is meant to isolate.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-upstream-b
+  namespace: default
+  labels:
+    app: mock-upstream-b
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mock-upstream-b
+  template:
+    metadata:
+      labels:
+        app: mock-upstream-b
+    spec:
+      containers:
+        - name: echo
+          image: lb-mock-upstream:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--listen", "0.0.0.0:80"]
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "64Mi"
+            limits:
+              cpu: "2000m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-upstream-b
+  namespace: default
+spec:
+  selector:
+    app: mock-upstream-b
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# A second HTTPRoute mutated in parallel with the primary one, so the churn
+# workload also exercises adding and removing whole routes rather than only
+# swapping a backend on an existing one.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: churn-secondary-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: lb-gateway-hyper
+      namespace: default
+    - name: lb-gateway-pingora
+      namespace: default
+    - name: lb-gateway-monoio
+      namespace: default
+  hostnames:
+    - churn.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /churn
+      backendRefs:
+        - name: mock-upstream-b
+          port: 80
+          weight: 1

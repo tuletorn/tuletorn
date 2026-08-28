@@ -1,0 +1,257 @@
+# Implementation Plan: High-Performance Kubernetes Gateway API Proxy in Rust 2024 ("Traefik-RS" MVP)
+
+This document specifies the technical design, architectural components, dependency choices, and step-by-step roadmap for building a production-grade, minimal working MVP of a high-performance HTTP/HTTPS reverse proxy and Kubernetes Gateway API controller in **Rust 2024 (rustc 1.97)**.
+
+---
+
+## 1. Architectural Overview & System Design
+
+The system decouples the **Control Plane** (asynchronous resource discovery & state reconciliation) from the **Data Plane** (lock-free, zero-allocation request routing & streaming proxying) using atomic swap primitives.
+
+```
+                             +-----------------------------------+
+                             |     Kubernetes Control Plane      |
+                             | (Gateway API, EndpointSlices,     |
+                             |  Services, TLS Secrets)           |
+                             +-----------------+-----------------+
+                                               |
+                                     kube-rs (Async Watches)
+                                               |
+                                               v
++-----------------------------------------------------------------------------------------+
+|                                    CONTROL PLANE                                        |
+|                                                                                         |
+|  +--------------------------+  Reconcile   +---------------------+  Parse PEM / Certs   |
+|  | Gateway API Controller   | -----------> | Route Compiler      | -------------------+ |
+|  | (kube::runtime::Watcher) |              | (matchit + Filters) |                    | |
+|  +--------------------------+              +----------+----------+                    | |
+|                                                       |                               | |
+|                                           ArcSwap<RouteTable>::store()                | |
+|                                                       |                               v |
++-------------------------------------------------------|-------------------+-------------+
+                                                        |                   | ArcSwap<CertStore>
+                                                        v                   v
++-----------------------------------------------------------------------------------------+
+|                                     DATA PLANE                                          |
+|                                                                                         |
+|   Downstream Client                                                                     |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Tokio TCP Listener (:80 / :443) ]                                                   |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Dynamic SNI TLS (tokio-rustls + ResolvesServerCert) ] <-----------------------------+
+|          |                                                                              |
+|          v                                                                              |
+|   [ Hyper HTTP/1.1 & HTTP/2 Connection Handler ]                                        |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Lock-Free Route Lookup: RouteTable::load() -> matchit::Router::at(path) ]           |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Tower Middleware Pipeline ]                                                         |
+|     - Tracing & Access Logging (tower-http::trace)                                      |
+|     - Header Filters (Request/Response Header Modifiers)                                |
+|     - Rate Limiting / Timeout                                                           |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Upstream Load Balancer (Round-Robin / Random across EndpointSlice healthy IPs) ]    |
+|          |                                                                              |
+|          v                                                                              |
+|   [ Hyper Client: Zero-Copy Body Streaming to Upstream Backend Pod ]                    |
+|                                                                                         |
++-----------------------------------------------------------------------------------------+
+```
+
+---
+
+## 2. Key Technology Stack & Rust Crates (Rust 2024 / 1.97)
+
+| Role | Crate | Purpose & Rationale |
+| :--- | :--- | :--- |
+| **Edition & Compiler** | Rust 2024 (1.97+) | Modern language idioms, RPITIT, async closures, and improved borrow checker ergonomics. |
+| **Async Runtime** | `tokio` (1.x, `full`) | High-concurrency multithreaded I/O runtime. |
+| **HTTP Engine** | `hyper` (1.x), `hyper-util`, `http-body-util` | Zero-copy HTTP/1.1 and H2 server and client data plane. |
+| **Trie Routing** | `matchit` (0.8+) | Sub-microsecond SIMD-friendly Radix tree URL path matcher with wildcards and params. |
+| **Atomic State Swap** | `arc-swap` (1.7+) | Zero-contention, lock-free routing table swaps on control-plane updates. |
+| **Kubernetes Client** | `kube` (0.93+), `k8s-openapi` | Native async Kubernetes API client, informer reconciler, Gateway API CRD support. |
+| **TLS & SNI** | `tokio-rustls`, `rustls` (0.23+), `rustls-pki-types` | Memory-safe TLS engine; dynamic SNI resolution via custom `ResolvesServerCert`. |
+| **Middleware & Services**| `tower`, `tower-http` | Composable middleware layers (Timeout, Trace, HeaderModifier, Cors, Limit). |
+| **Observability** | `tracing`, `tracing-subscriber`, `metrics` | Structured JSON/stdout logs, Prometheus metrics for latency and connection stats. |
+| **CLI & Config** | `clap` (derive), `serde`, `serde_yaml` | Flexible CLI flags, config file support for dual-mode (standalone vs in-cluster). |
+
+---
+
+## 3. Project Structure & Module Layout
+
+The project will be organized cleanly with clear separation of concerns:
+
+```
+lb/
+├── Cargo.toml
+├── src/
+│   ├── main.rs                   # Entry point, CLI parsing, runtime initialization & signal handling
+│   ├── config.rs                 # Static configuration (ports, TLS defaults, mode selection)
+│   ├── core/                     # Core routing & domain primitives
+│   │   ├── mod.rs
+│   │   ├── route_table.rs        # matchit Router wrapper, Hostname/SNI map, Atomic Swap container
+│   │   ├── target.rs             # Upstream backend targets, LoadBalancing state (RoundRobin, Random)
+│   │   ├── filter.rs             # Gateway API filters (URL rewrite, header add/remove/set)
+│   │   └── health.rs             # Upstream health check status tracking
+│   ├── proxy/                    # Data plane HTTP/HTTPS engine
+│   │   ├── mod.rs
+│   │   ├── server.rs             # Tokio listener, Hyper connection loop, graceful drain
+│   │   ├── handler.rs            # Core request proxying handler (lookup -> filter -> forward stream)
+│   │   ├── client.rs             # Hyper client pool for upstream communication
+│   │   ├── tls.rs                # Dynamic SNI certificate resolver (ResolvesServerCert)
+│   │   └── middleware.rs         # Tower middleware stack builder
+│   ├── k8s/                      # Control plane: Gateway API controller
+│   │   ├── mod.rs
+│   │   ├── client.rs             # kube::Client initialization (in-cluster or kubeconfig)
+│   │   ├── gateway_api.rs        # GatewayClass, Gateway, HTTPRoute CRD definitions & types
+│   │   ├── controller.rs         # kube::runtime::Controller reconciler loops
+│   │   ├── translator.rs         # Translates k8s Gateway+HTTPRoute+EndpointSlices -> RouteTable
+│   │   └── secret_watcher.rs     # Watches TLS Secrets and syncs into dynamic CertStore
+│   └── observability/            # Logging, tracing & metrics
+│       ├── mod.rs
+│       ├── metrics.rs            # Prometheus metrics registry & scrape handler (/metrics)
+│       └── tracing.rs            # Tracing subscriber setup
+├── tests/
+│   ├── integration_proxy_test.rs # End-to-end proxying tests with mock upstreams
+│   ├── route_matching_test.rs    # Hostname & path routing precedence tests
+│   └── tls_sni_test.rs           # Dynamic SNI certificate resolution tests
+└── manifests/                    # Kubernetes Gateway API example manifests & RBAC
+    ├── rbac.yaml
+    ├── gatewayclass.yaml
+    ├── gateway.yaml
+    └── httproute-example.yaml
+```
+
+---
+
+## 4. Detailed Component Design & Data Flow
+
+### 4.1. Core Routing Table (`core/route_table.rs`)
+- **Host Matching**: Maps exact hostname (e.g. `api.example.com`) and wildcard hostname (`*.example.com`) to a per-host `matchit::Router<RouteAction>`.
+- **Path Matching**: Exact (`/api/v1/users`), Prefix (`/api/v1`), and Regular Expression (where supported).
+- **Atomic Swap**:
+  ```rust
+  pub struct SharedRouteTable {
+      inner: arc_swap::ArcSwap<RouteTable>,
+  }
+  ```
+  Data plane threads call `table.load()` acquiring an `Arc<RouteTable>` in single-digit nanoseconds without acquiring any mutex lock.
+
+### 4.2. Upstream Load Balancing (`core/target.rs`)
+- Each route action contains a list of backend target endpoints (e.g. `[10.244.1.5:8080, 10.244.2.12:8080]`).
+- Supports **Round-Robin** (via atomic integer index modulo targets length) and **Weighted Target Groups** matching Gateway API `backendRefs[].weight`.
+
+### 4.3. Dynamic SNI TLS Engine (`proxy/tls.rs`)
+- Implements `rustls::server::ResolvesServerCert`.
+- Backed by `arc_swap::ArcSwap<HashMap<String, Arc<rustls::sign::CertifiedKey>>>`.
+- When a client issues a TLS ClientHello with SNI `api.example.com`, `ResolvesServerCert::resolve()` looks up the matching certificate in the map (or wildcard cert `*.example.com` or default fallback).
+- Kubernetes `Secret` updates reload keys into the map without dropping existing active connections.
+
+### 4.4. Zero-Copy Hyper Proxy Handler (`proxy/handler.rs`)
+- For incoming requests:
+  1. Extract Host header and URI path.
+  2. Perform lookup on `ArcSwap<RouteTable>`. If no route matches, return `404 Not Found`.
+  3. Apply Gateway API request filters (e.g. `RequestHeaderModifier`, `URLRewrite`).
+  4. Select healthy upstream backend target via load balancing policy.
+  5. Rewrite `Uri` to upstream destination (`http://<pod_ip>:<port><path>`).
+  6. Forward request body as a continuous stream using `http_body_util::combinators::BoxBody`.
+  7. Apply response filters (e.g. `ResponseHeaderModifier`) to upstream response headers.
+  8. Stream upstream response body back to downstream client.
+
+### 4.5. Kubernetes Controller & Gateway API Reconciler (`k8s/controller.rs`)
+- Watches the following resources:
+  - `gateway.networking.k8s.io/v1` `GatewayClass` (filters by `controllerName: "lb.rs/gateway-controller"`).
+  - `gateway.networking.k8s.io/v1` `Gateway` (listeners for HTTP :80, HTTPS :443, TLS secret references).
+  - `gateway.networking.k8s.io/v1` `HTTPRoute` (hostnames, rule matches, filters, backendRefs).
+  - `discovery.k8s.io/v1` `EndpointSlice` (resolves backend service targets directly to Pod IPs to bypass kube-proxy double-hop).
+  - `v1` `Secret` (retrieves `tls.crt` and `tls.key`).
+- Compiles the aggregated state into a fresh immutable `RouteTable` and dynamic `CertStore`, then triggers `ArcSwap::store()`.
+- Updates `HTTPRoute` status condition (`type: Accepted`, `status: True`) and `Gateway` status (`listeners[].attachedRoutes`).
+
+### 4.6. Dual Mode Operation: In-Cluster vs Standalone/Local
+- To ensure developer velocity and local testability without needing minikube/k3s:
+  - **In-Cluster Mode (`--mode=k8s`)**: Connects to Kubernetes API via in-cluster service account or local kubeconfig.
+  - **Standalone Mode (`--mode=standalone --config=routes.yaml`)**: Loads static route specifications from a local YAML file, with auto-reloading file watcher for local development.
+
+---
+
+## 5. Phased Implementation Steps
+
+### Phase 1: Project Setup & Core Primitives
+1. Initialize Rust 2024 Cargo project with all required dependencies (`tokio`, `hyper`, `hyper-util`, `matchit`, `arc-swap`, `tower`, `rustls`, `kube`, `tracing`, `clap`).
+2. Implement `core/route_table.rs` with `matchit::Router`, hostname matching, and `ArcSwap` wrapper.
+3. Implement `core/target.rs` for upstream endpoints and Round-Robin load balancer.
+4. Implement `core/filter.rs` for header modifications and path rewrites.
+5. Unit tests for route matching precedence and load balancing.
+
+### Phase 2: Data Plane Proxy Engine (Hyper + Tokio)
+1. Implement `proxy/client.rs`: connection-pooling Hyper client for upstream requests.
+2. Implement `proxy/handler.rs`: request routing, filter execution, streaming proxying.
+3. Implement `proxy/server.rs`: Tokio TCP listener, Hyper HTTP/1.1 and HTTP/2 connection server.
+4. Implement `proxy/middleware.rs`: Tower layers for access logging, request timing, and error handling.
+5. Integration test: launch proxy against local mock HTTP servers and verify zero-copy streaming, header rewriting, and load balancing.
+
+### Phase 3: Dynamic TLS & SNI (Rustls)
+1. Implement `proxy/tls.rs` with `ResolvesServerCertUsingSni` and atomic certificate store swap.
+2. Configure Tokio Rustls acceptor on HTTPS port (443).
+3. Integration test: verify HTTPS requests with distinct SNI hostnames receive their respective certificates dynamically.
+
+### Phase 4: Control Plane & Kubernetes Gateway API Controller
+1. Implement `k8s/gateway_api.rs` with Gateway API CRD definitions and spec structures.
+2. Implement `k8s/translator.rs` to transform Gateway, HTTPRoute, and EndpointSlices into `RouteTable`.
+3. Implement `k8s/secret_watcher.rs` to fetch TLS certificates and update the dynamic `CertStore`.
+4. Implement `k8s/controller.rs` using `kube::runtime::Controller` with reconciliation streams, error backoff, and status condition updates.
+5. Provide example Kubernetes manifests in `manifests/` (RBAC, GatewayClass, Gateway, HTTPRoute).
+
+### Phase 5: Observability, Standalone Mode & Polishing
+1. Implement Prometheus `/metrics` endpoint (request count, latency histograms, active connections, route count).
+2. Implement standalone YAML config loader and file watcher.
+3. Add graceful shutdown handling (`SIGINT` / `SIGTERM`) with active connection draining.
+4. Performance benchmarking (latency & throughput test script).
+
+---
+
+## 6. Verification Plan
+
+### Automated Tests
+- **Unit Tests**:
+  - `cargo test --lib`: verifies radix trie path matching, wildcard hostname resolution, filter application, and round-robin index rotation.
+- **Integration Tests**:
+  - `cargo test --test integration_proxy_test`: spins up multiple mock upstream HTTP servers, sends concurrent requests through the Rust proxy, and verifies correct load balancing, header modifications, and streaming body integrity.
+  - `cargo test --test tls_sni_test`: generates self-signed test certificates for `foo.local` and `bar.local`, connects via TLS with SNI, and validates cert identity.
+- **Linting & Code Quality**:
+  - `cargo clippy -- -D warnings`
+  - `cargo fmt --check`
+
+### Manual / Cluster Verification
+- Run standalone mode locally:
+  ```bash
+  cargo run -- --mode=standalone --config=examples/sample_routes.yaml --http-port=8080
+  curl -H "Host: api.example.com" http://localhost:8080/v1/test
+  ```
+- Deploy to local k3d/kind cluster with Gateway API CRDs installed:
+  ```bash
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
+  kubectl apply -f manifests/
+  ```
+
+---
+
+## 7. Open Questions & Design Decisions
+
+> [!IMPORTANT]
+> **1. Upstream Resolution Strategy: Direct Pod IP (EndpointSlice) vs ClusterIP?**
+> - *Recommendation*: Use `discovery.k8s.io/v1` `EndpointSlice` to route directly to Pod IPs, bypassing `kube-proxy` iptables/IPVS overhead and enabling client-side load balancing (Round-Robin/Least-Conn) inside Rust. We will also support ClusterIP as fallback.
+>
+> **2. Auto-Cert (ACME / Let's Encrypt) in MVP?**
+> - *Recommendation*: For the minimal MVP, TLS certs are dynamically sourced from Kubernetes `Secret` resources (which can be managed by `cert-manager` or `instant-acme`). An integrated in-proxy ACME solver can be added as a Phase 2 module to keep the core MVP lightweight and focused.
+>
+> **3. Data Plane Engine: Pure Hyper vs Pingora?**
+> - *Recommendation*: Use `hyper` 1.x + `hyper-util` + `tower` for the MVP. Hyper provides complete low-level control, seamless integration with the Tower middleware ecosystem, smaller binary size, and zero C/FFI dependency issues. Pingora backend adapter can be plugged in as an alternative engine interface later.
+
+---

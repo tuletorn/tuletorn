@@ -1,0 +1,47 @@
+# Representative route configuration for the PGO profiling pass (plan §4.2).
+#
+# The point of a PGO profile is that it exercises the branches the production
+# workload takes. A single catch-all route would leave the wildcard-host walk,
+# the filter pipeline and the URL-rewrite path cold, so `-Cprofile-use` would
+# then pessimise exactly the code paths a real Gateway API deployment uses.
+routes:
+  # 1. Exact host, exact path: the shortest possible lookup.
+  - name: pgo-exact
+    hostname: api.example.com
+    path: /v1/users
+    path_type: Exact
+    backends:
+      - address: 127.0.0.1:9090
+
+  # 2. Exact host, prefix path with a filter pipeline and a rewrite.
+  - name: pgo-prefix-filtered
+    hostname: api.example.com
+    path: /v1
+    path_type: PathPrefix
+    backends:
+      - address: 127.0.0.1:9090
+        weight: 3
+      - address: 127.0.0.1:9090
+        weight: 1
+    request_headers:
+      - !Set { name: x-gateway, value: lb }
+      - !Add { name: x-request-source, value: pgo-profile }
+      - !Remove { name: x-internal-only }
+    response_headers:
+      - !Set { name: x-served-by, value: lb-proxy }
+    rewrite: !Prefix { prefix: /v1, replacement: /internal }
+
+  # 3. Wildcard host: exercises the suffix walk in RouteTable::lookup.
+  - name: pgo-wildcard
+    hostname: "*.example.com"
+    path: /
+    path_type: PathPrefix
+    backends:
+      - address: 127.0.0.1:9090
+
+  # 4. Hostname-less catch-all: the default-router fallback.
+  - name: pgo-catchall
+    path: /
+    path_type: PathPrefix
+    backends:
+      - address: 127.0.0.1:9090

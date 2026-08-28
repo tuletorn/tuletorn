@@ -1,0 +1,9 @@
+Benchmark runs are written here as results/run_<timestamp>/ (plan §5):
+
+  run_<timestamp>/
+  ├── report.md            Markdown comparison report
+  ├── hardware_spec.json   Environment snapshot (plan §7.2)
+  ├── raw_metrics.json     Every BenchmarkResult, unrounded
+  ├── results.csv          Flat export for plot_results.py
+  ├── flamegraphs/         Per-candidate CPU profiles (plan §5)
+  └── plots/               Charts from scripts/plot_results.py

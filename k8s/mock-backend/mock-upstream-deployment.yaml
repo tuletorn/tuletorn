@@ -1,0 +1,56 @@
+# Mock upstream backend pods (plan §1).
+#
+# Uses the workspace's own `lb-mock-upstream` image rather than a third-party
+# echo server, so the backend supports the `?size=N` payload selection that the
+# 1 KB / 64 KB / 1 MB sweep in plan §8 needs, and so its cost is identical for
+# every candidate.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-upstream
+  namespace: default
+  labels:
+    app: mock-upstream
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: mock-upstream
+  template:
+    metadata:
+      labels:
+        app: mock-upstream
+    spec:
+      containers:
+        - name: echo
+          image: lb-mock-upstream:latest
+          imagePullPolicy: Never
+          args: ["--listen", "0.0.0.0:80"]
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "64Mi"
+            limits:
+              cpu: "2000m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-upstream
+  namespace: default
+spec:
+  selector:
+    app: mock-upstream
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

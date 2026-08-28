@@ -1,0 +1,47 @@
+[package]
+name = "lb-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Shared routing, load-balancing and SIMD primitives for the lb proxy benchmark"
+
+[dependencies]
+bytes.workspace = true
+matchit.workspace = true
+arc-swap.workspace = true
+simdutf8.workspace = true
+memchr.workspace = true
+crossbeam-utils.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+http.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+futures-util = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+kube = { workspace = true, optional = true }
+k8s-openapi = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion.workspace = true
+parking_lot.workspace = true
+route-recognizer.workspace = true
+tokio = { workspace = true }
+
+[features]
+default = []
+k8s = ["dep:kube", "dep:k8s-openapi", "dep:futures-util", "dep:tokio"]
+
+[[bench]]
+name = "routing_bench"
+harness = false
+
+[[bench]]
+name = "route_swap_bench"
+harness = false
+
+[[bench]]
+name = "simd_parsing_bench"
+harness = false

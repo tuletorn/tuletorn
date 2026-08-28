@@ -1,0 +1,10 @@
+# Standard benchmark route configuration.
+#
+# One catch-all to the mock upstream, so a throughput sweep measures the proxy's
+# forwarding path rather than the cost of route selection.
+routes:
+  - name: bench-catchall
+    path: /
+    path_type: PathPrefix
+    backends:
+      - address: 127.0.0.1:9090

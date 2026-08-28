@@ -1,0 +1,143 @@
+# lb-proxy-monoio: Deployment, Service, RBAC, GatewayClass and Gateway (plan §5).
+#
+# Each candidate owns a distinct GatewayClass and Gateway (lb-gateway-monoio),
+# so all three can be applied at once without the last one silently overwriting
+# the others' Gateway object. The shared benchmark HTTPRoute lists every
+# Gateway as a parentRef, which keeps the *route* byte-identical across
+# candidates — a throughput difference cannot then come from one of them having
+# been handed a different rule set.
+#
+# Resource limits are identical to the Traefik baseline in k8s/traefik/: a
+# benchmark where one candidate gets more CPU quota measures the quota.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lb-proxy-monoio
+  namespace: default
+---
+# The reconciler watches HTTPRoutes and EndpointSlices cluster-wide. Nothing
+# here grants write access to anything but status: the data plane never mutates
+# cluster state.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lb-proxy-monoio
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "gatewayclasses", "httproutes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways/status", "httproutes/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lb-proxy-monoio
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lb-proxy-monoio
+subjects:
+  - kind: ServiceAccount
+    name: lb-proxy-monoio
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lb-proxy-monoio
+  namespace: default
+  labels:
+    app: lb-proxy-monoio
+    lb-bench/candidate: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lb-proxy-monoio
+  template:
+    metadata:
+      labels:
+        app: lb-proxy-monoio
+    spec:
+      serviceAccountName: lb-proxy-monoio
+      containers:
+        - name: proxy
+          image: lb-proxy-monoio:latest
+          # Built locally and side-loaded with 'kind load docker-image', so the
+          # kubelet must not try to pull it from a registry.
+          imagePullPolicy: Never
+          args:
+            - --listen
+            - 0.0.0.0:8082
+            - --mode
+            - k8s
+            - --gateway-name
+            - lb-gateway-monoio
+            # Matches the 4-core CPU limit below, so the candidate does not
+            # start more workers than its cgroup quota can run.
+            - --threads
+            - "4"
+          env:
+            - name: RUST_LOG
+              value: warn
+          ports:
+            - name: http
+              containerPort: 8082
+          readinessProbe:
+            tcpSocket:
+              port: 8082
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: "4000m"
+              memory: "256Mi"
+            limits:
+              cpu: "4000m"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-proxy-monoio
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: lb-proxy-monoio
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+      # Matches the extraPortMappings in k8s/kind-cluster-config.yaml.
+      nodePort: 30003
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: lb-monoio
+spec:
+  controllerName: lb.example.com/lb-proxy-monoio
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lb-gateway-monoio
+  namespace: default
+spec:
+  gatewayClassName: lb-monoio
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8082
+      allowedRoutes:
+        namespaces:
+          from: All

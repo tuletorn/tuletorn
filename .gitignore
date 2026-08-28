@@ -1,0 +1,36 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.bk
+
+# Profile-Guided Optimization (PGO) & Profiling data
+*.profdata
+*.profraw
+perf.data
+perf.data.old
+perf.fdata
+flamegraph.svg
+
+# Benchmark generated results (keep folder, ignore runs)
+results/run_*
+results/*.png
+results/*.svg
+results/*.csv
+results/*.pb.gz
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Kubernetes / Local cluster temp files
+kubeconfig
+*.kubeconfig
