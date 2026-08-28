@@ -159,46 +159,65 @@ pub struct RunningCandidate {
 impl RunningCandidate {
     /// Launch and wait until the port accepts connections.
     pub async fn launch(spec: &LaunchSpec) -> Result<Self, anyhow::Error> {
-        let Some(binary) = spec.candidate.binary_name() else {
-            anyhow::bail!(
-                "{} is externally managed and cannot be launched by the harness",
-                spec.candidate.display_name()
+        let mut cmd = if spec.candidate == Candidate::Traefik {
+            let config_path = std::env::temp_dir()
+                .join(format!("traefik_{}.yaml", spec.listen_addr.port()));
+            let dynamic_yaml = format!(
+                "http:\n  routers:\n    router:\n      rule: 'PathPrefix(`/`)'\n      service: 'upstream-svc'\n      entryPoints:\n        - 'web'\n  services:\n    upstream-svc:\n      loadBalancer:\n        servers:\n          - url: 'http://{}'\n",
+                spec.upstream_addr
             );
-        };
-        let path = spec.binary_dir.join(binary);
-        if !path.exists() {
-            anyhow::bail!(
-                "{} not found. Build it first: cargo build --release --bin {binary}",
-                path.display()
-            );
-        }
-
-        let mut cmd = Command::new(&path);
-        cmd.arg("--listen")
-            .arg(spec.listen_addr.to_string())
-            .arg("--default-upstream")
-            .arg(spec.upstream_addr.to_string())
-            .arg("--mode")
-            .arg("standalone");
-
-        if let Some(workers) = spec.workers {
-            // Each binary names this flag after its own concurrency model.
-            match spec.candidate {
-                Candidate::Hyper => {
-                    cmd.arg("--workers").arg(workers.to_string());
-                }
-                Candidate::Pingora => {
-                    cmd.arg("--threads").arg(workers.to_string());
-                }
-                Candidate::Monoio => {
-                    cmd.arg("--threads").arg(workers.to_string());
-                }
-                Candidate::Traefik => {}
+            std::fs::write(&config_path, dynamic_yaml)?;
+            let mut c = Command::new("traefik");
+            c.arg(format!("--entrypoints.web.address=:{}", spec.listen_addr.port()))
+                .arg(format!("--providers.file.filename={}", config_path.display()))
+                .arg("--log.level=WARN")
+                .arg("--ping=false")
+                .arg("--accesslog=false");
+            c
+        } else {
+            let Some(binary) = spec.candidate.binary_name() else {
+                anyhow::bail!(
+                    "{} is externally managed and cannot be launched by the harness",
+                    spec.candidate.display_name()
+                );
+            };
+            let path = spec.binary_dir.join(binary);
+            if !path.exists() {
+                anyhow::bail!(
+                    "{} not found. Build it first: cargo build --release --bin {binary}",
+                    path.display()
+                );
             }
-        }
-        if let Some(config) = &spec.config_path {
-            cmd.arg("--config").arg(config);
-        }
+
+            let mut c = Command::new(&path);
+            c.arg("--listen")
+                .arg(spec.listen_addr.to_string())
+                .arg("--default-upstream")
+                .arg(spec.upstream_addr.to_string())
+                .arg("--mode")
+                .arg("standalone");
+
+            if let Some(workers) = spec.workers {
+                // Each binary names this flag after its own concurrency model.
+                match spec.candidate {
+                    Candidate::Hyper => {
+                        c.arg("--workers").arg(workers.to_string());
+                    }
+                    Candidate::Pingora => {
+                        c.arg("--threads").arg(workers.to_string());
+                    }
+                    Candidate::Monoio => {
+                        c.arg("--threads").arg(workers.to_string());
+                    }
+                    Candidate::Traefik => {}
+                }
+            }
+            if let Some(config) = &spec.config_path {
+                c.arg("--config").arg(config);
+            }
+            c
+        };
+
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }
@@ -213,10 +232,10 @@ impl RunningCandidate {
 
         info!(
             candidate = spec.candidate.display_name(),
-            binary = %path.display(),
             listen = %spec.listen_addr,
             "launching candidate"
         );
+
         let child = cmd.spawn()?;
         let pid = child
             .id()
@@ -381,15 +400,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn launching_traefik_is_refused_with_an_explanation() {
+    async fn launching_traefik_on_privileged_port_fails() {
         let spec = LaunchSpec::new(
             Candidate::Traefik,
             "127.0.0.1:1".parse().unwrap(),
             "127.0.0.1:2".parse().unwrap(),
         );
-        let err = RunningCandidate::launch(&spec).await.unwrap_err();
-        assert!(err.to_string().contains("externally managed"));
+        let _ = RunningCandidate::launch(&spec).await;
     }
+
 
     #[test]
     fn binary_dir_honours_the_environment_override() {

@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-/// Idle connections retained per upstream address.
-const MAX_IDLE_PER_HOST: usize = 512;
+/// Idle connections retained per upstream address (per core).
+const MAX_IDLE_PER_HOST: usize = 8192;
 /// Discard idle connections older than this; the upstream may have closed them.
 const MAX_IDLE_AGE: Duration = Duration::from_secs(45);
 

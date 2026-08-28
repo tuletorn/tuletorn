@@ -1713,6 +1713,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "socket2 0.6.5",
  "sysinfo",
  "tikv-jemallocator",
  "tokio",

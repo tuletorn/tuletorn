@@ -180,11 +180,7 @@ fn build_scenario(args: &Args) -> Result<ScenarioConfig, anyhow::Error> {
 
 fn selected_candidates(args: &Args) -> Result<Vec<Candidate>, anyhow::Error> {
     if args.all {
-        return Ok(match args.mode {
-            // Traefik only exists inside the cluster.
-            Mode::Local => Candidate::rust_candidates().to_vec(),
-            Mode::K8s => Candidate::all().to_vec(),
-        });
+        return Ok(Candidate::all().to_vec());
     }
     if args.candidate.is_empty() {
         return Ok(vec![Candidate::Hyper]);
@@ -197,8 +193,38 @@ fn selected_candidates(args: &Args) -> Result<Vec<Candidate>, anyhow::Error> {
         .collect()
 }
 
+
+fn raise_fd_limit() {
+    #[cfg(unix)]
+    {
+        #[repr(C)]
+        struct RLimit {
+            soft: u64,
+            hard: u64,
+        }
+        unsafe extern "C" {
+            fn getrlimit(resource: i32, rlim: *mut RLimit) -> i32;
+            fn setrlimit(resource: i32, rlim: *const RLimit) -> i32;
+        }
+        #[cfg(target_os = "macos")]
+        const RLIMIT_NOFILE: i32 = 8;
+        #[cfg(not(target_os = "macos"))]
+        const RLIMIT_NOFILE: i32 = 7;
+
+        let mut limit = RLimit { soft: 0, hard: 0 };
+        if unsafe { getrlimit(RLIMIT_NOFILE, &mut limit) } == 0 {
+            let target = limit.hard.min(1_048_576);
+            if limit.soft < target {
+                limit.soft = target;
+                let _ = unsafe { setrlimit(RLIMIT_NOFILE, &limit) };
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    raise_fd_limit();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -207,6 +233,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .init();
 
     let args = Args::parse();
+
     let hardware = HardwareSpec::detect();
     info!(
         cpu = %hardware.cpu_model,
@@ -357,7 +384,7 @@ mod tests {
         );
 
         let all_local = args_from(&["--all"]);
-        assert_eq!(selected_candidates(&all_local).unwrap().len(), 3);
+        assert_eq!(selected_candidates(&all_local).unwrap().len(), 4);
 
         let all_k8s = args_from(&["--all", "--mode", "k8s"]);
         assert!(

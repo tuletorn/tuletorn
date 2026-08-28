@@ -22,6 +22,8 @@ lb-core = { path = "../core" }
 parking_lot.workspace = true
 num_cpus.workspace = true
 tokio = { workspace = true, features = ["full", "parking_lot", "process", "signal"] }
+socket2.workspace = true
+
 hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true

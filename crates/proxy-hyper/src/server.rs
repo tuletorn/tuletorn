@@ -30,9 +30,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace};
 
-/// Listen backlog. Deep enough that a 25k-connection ramp does not overflow the
-/// SYN queue and get counted as proxy latency.
-const LISTEN_BACKLOG: i32 = 16_384;
+/// Listen backlog. Deep enough that massive 100k-connection ramps do not overflow
+/// the SYN queue and get counted as proxy latency.
+const LISTEN_BACKLOG: i32 = 65_535;
+
 
 /// Server tuning.
 #[derive(Debug, Clone)]

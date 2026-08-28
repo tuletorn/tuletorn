@@ -121,25 +121,40 @@ impl LoadGenerator {
         let running = Arc::new(AtomicBool::new(true));
         let calibration = Arc::new(Calibration::default());
 
-        let mut connector = HttpConnector::new();
-        connector.set_nodelay(true);
-        connector.set_keepalive(Some(Duration::from_secs(60)));
-        connector.set_reuse_address(true);
+        let client_count = if self.config.concurrency > 30_000 && cfg!(target_os = "linux") {
+            8
+        } else {
+            1
+        };
+        let clients: Vec<Arc<Client<HttpConnector, BoxedBody>>> = (0..client_count)
+            .map(|i| {
+                let mut connector = HttpConnector::new();
+                connector.set_nodelay(true);
+                connector.set_keepalive(Some(Duration::from_secs(60)));
+                connector.set_reuse_address(true);
+                #[cfg(target_os = "linux")]
+                if client_count > 1 {
+                    connector.set_local_address(Some(std::net::IpAddr::V4(
+                        std::net::Ipv4Addr::new(127, 0, (i + 1) as u8, 1),
+                    )));
+                }
 
-        let mut builder = Client::builder(TokioExecutor::new());
-        builder
-            .pool_timer(TokioTimer::new())
-            .pool_idle_timeout(Duration::from_secs(90))
-            // One idle slot per worker, so a worker never has to reconnect
-            // between requests and the measurement excludes handshake cost.
-            .pool_max_idle_per_host(self.config.concurrency.saturating_mul(2).max(64));
-        if self.config.http_version == HttpVersion::Http2 {
-            builder
-                .http2_only(true)
-                .http2_initial_stream_window_size(1024 * 1024)
-                .http2_initial_connection_window_size(4 * 1024 * 1024);
-        }
-        let client = Arc::new(builder.build::<_, BoxedBody>(connector));
+                let mut builder = Client::builder(TokioExecutor::new());
+                builder
+                    .pool_timer(TokioTimer::new())
+                    .pool_idle_timeout(Duration::from_secs(90))
+                    // Bound idle connections to prevent memory hoarding at 100k+ concurrency
+                    .pool_max_idle_per_host(self.config.concurrency.min(1024).max(64));
+                if self.config.http_version == HttpVersion::Http2 {
+                    builder
+                        .http2_only(true)
+                        .http2_initial_stream_window_size(1024 * 1024)
+                        .http2_initial_connection_window_size(4 * 1024 * 1024);
+                }
+                Arc::new(builder.build::<_, BoxedBody>(connector))
+            })
+            .collect();
+
 
         // Per-worker pacing interval, in microseconds, for CO correction.
         let expected_interval_us = match self.config.target_rps {
@@ -157,11 +172,25 @@ impl LoadGenerator {
             stop_flag.store(false, Ordering::Relaxed);
         });
 
+        let shard_count = 64.min(self.config.concurrency.max(1));
+        let worker_shards: Arc<Vec<std::sync::Mutex<crate::metrics::latency::WorkerRecorder>>> =
+            Arc::new(
+                (0..shard_count)
+                    .map(|_| std::sync::Mutex::new(self.recorder.worker()))
+                    .collect(),
+            );
+
         let mut handles = Vec::with_capacity(self.config.concurrency);
-        for _ in 0..self.config.concurrency {
-            let client = client.clone();
+        let batch_size = 500;
+        for idx in 0..self.config.concurrency {
+            if idx > 0 && idx % batch_size == 0 && self.config.concurrency > 2000 {
+                tokio::task::yield_now().await;
+            }
+            let client = clients[idx % client_count].clone();
+
             let running = running.clone();
-            let recorder = self.recorder.clone();
+            let worker_shards = worker_shards.clone();
+            let shard_idx = idx % shard_count;
             let calibration = calibration.clone();
             let uri = uri.clone();
             let method = self.config.method.clone();
@@ -169,8 +198,8 @@ impl LoadGenerator {
             let host = self.config.host_header.clone();
             let version = self.config.http_version;
 
+
             handles.push(tokio::spawn(async move {
-                let mut worker = recorder.worker();
                 let mut next_send = Instant::now();
 
                 while running.load(Ordering::Relaxed) {
@@ -200,7 +229,9 @@ impl LoadGenerator {
                         builder = builder.version(http::Version::HTTP_2);
                     }
                     let Ok(request) = builder.body(body) else {
-                        worker.record_failure();
+                        if let Ok(mut w) = worker_shards[shard_idx].lock() {
+                            w.record_failure();
+                        }
                         continue;
                     };
 
@@ -216,20 +247,31 @@ impl LoadGenerator {
                                     let bytes = collected.to_bytes().len() as u64;
                                     let elapsed = calibration
                                         .ticks_to_micros(cycles::timestamp().wrapping_sub(start));
-                                    if status.is_success() || status.is_redirection() {
-                                        worker.record_success(elapsed, bytes, expected_interval_us);
-                                    } else {
-                                        worker.record_error_response(elapsed, expected_interval_us);
+                                    if let Ok(mut w) = worker_shards[shard_idx].lock() {
+                                        if status.is_success() || status.is_redirection() {
+                                            w.record_success(elapsed, bytes, expected_interval_us);
+                                        } else {
+                                            w.record_error_response(elapsed, expected_interval_us);
+                                        }
                                     }
                                 }
-                                Err(_) => worker.record_failure(),
+                                Err(_) => {
+                                    if let Ok(mut w) = worker_shards[shard_idx].lock() {
+                                        w.record_failure();
+                                    }
+                                }
                             }
                         }
-                        Err(_) => worker.record_failure(),
+                        Err(_) => {
+                            if let Ok(mut w) = worker_shards[shard_idx].lock() {
+                                w.record_failure();
+                            }
+                        }
                     }
                 }
             }));
         }
+
 
         for handle in handles {
             let _ = handle.await;
@@ -258,19 +300,21 @@ mod tests {
         tokio::spawn(async move {
             let _ = mock.run(rx).await;
         });
-        // Readiness must be an actual HTTP round trip: a bare TCP connect can
-        // succeed against a socket that is not yet serving, and the load window
-        // is short enough that a slow start would show up as "no requests".
-        let client: hyper_util::client::legacy::Client<HttpConnector, Empty<Bytes>> =
-            Client::builder(TokioExecutor::new()).build_http();
-        for _ in 0..200 {
-            let uri: Uri = format!("http://{addr}/healthz").parse().expect("valid uri");
-            if client.get(uri).await.is_ok() {
-                return (addr, tx);
+        for _ in 0..300 {
+            if let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let _ = stream.write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await;
+                let mut buf = [0u8; 64];
+                if let Ok(n) = stream.read(&mut buf).await {
+                    if n > 0 && buf.starts_with(b"HTTP/1.1 200") {
+                        return (addr, tx);
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         panic!("mock upstream did not become ready on {addr}");
+
     }
 
     #[test]

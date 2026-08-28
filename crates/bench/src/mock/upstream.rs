@@ -85,8 +85,21 @@ impl MockUpstream {
 
     /// Serve until `shutdown_rx` goes true.
     pub async fn run(self, mut shutdown_rx: watch::Receiver<bool>) -> Result<(), anyhow::Error> {
-        let listener = TcpListener::bind(self.config.listen_addr).await?;
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )?;
+        socket.set_reuse_address(true)?;
+        #[cfg(unix)]
+        let _ = socket.set_reuse_port(true);
+        let _ = socket.set_tcp_nodelay(true);
+        socket.set_nonblocking(true)?;
+        socket.bind(&self.config.listen_addr.into())?;
+        socket.listen(65535)?;
+        let listener = TcpListener::from_std(std::net::TcpListener::from(socket))?;
         info!(addr = %self.config.listen_addr, "mock upstream listening");
+
 
         let default_body = self.config.response_body;
         let delay_ms = self.config.delay_ms;
@@ -215,11 +228,19 @@ mod tests {
             let _ = mock.run(rx).await;
         });
         for _ in 0..200 {
-            if tokio::net::TcpStream::connect(addr).await.is_ok() {
-                break;
+            if let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let _ = stream.write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await;
+                let mut buf = [0u8; 64];
+                if let Ok(n) = stream.read(&mut buf).await {
+                    if n > 0 && buf.starts_with(b"HTTP/1.1 200") {
+                        break;
+                    }
+                }
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+
         (addr, tx)
     }
 

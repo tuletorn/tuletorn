@@ -226,8 +226,8 @@ unsafe fn eq_ignore_ascii_case_avx2(a: &[u8], b: &[u8]) -> bool {
     unsafe {
         // Signed compares, so bias the range check by 0x80.
         let bias = _mm256_set1_epi8(-128i8);
-        let lo = _mm256_set1_epi8((b'A' as i8).wrapping_sub(128).wrapping_sub(1));
-        let hi = _mm256_set1_epi8((b'Z' as i8).wrapping_sub(128).wrapping_add(1));
+        let lo = _mm256_set1_epi8(((b'A' ^ 0x80).wrapping_sub(1)) as i8);
+        let hi = _mm256_set1_epi8(((b'Z' ^ 0x80).wrapping_add(1)) as i8);
         let case_bit = _mm256_set1_epi8(0x20);
 
         while i + 32 <= len {
@@ -265,8 +265,8 @@ unsafe fn eq_ignore_ascii_case_sse2(a: &[u8], b: &[u8]) -> bool {
     // SAFETY: all loads stay within `i + 16 <= len`; loadu is unaligned-safe.
     unsafe {
         let bias = _mm_set1_epi8(-128i8);
-        let lo = _mm_set1_epi8((b'A' as i8).wrapping_sub(128).wrapping_sub(1));
-        let hi = _mm_set1_epi8((b'Z' as i8).wrapping_sub(128).wrapping_add(1));
+        let lo = _mm_set1_epi8(((b'A' ^ 0x80).wrapping_sub(1)) as i8);
+        let hi = _mm_set1_epi8(((b'Z' ^ 0x80).wrapping_add(1)) as i8);
         let case_bit = _mm_set1_epi8(0x20);
 
         while i + 16 <= len {
@@ -304,8 +304,8 @@ unsafe fn lowercase_ascii_sse2(buf: &mut [u8]) {
     // SAFETY: loads and stores stay within `i + 16 <= len`.
     unsafe {
         let bias = _mm_set1_epi8(-128i8);
-        let lo = _mm_set1_epi8((b'A' as i8).wrapping_sub(128).wrapping_sub(1));
-        let hi = _mm_set1_epi8((b'Z' as i8).wrapping_sub(128).wrapping_add(1));
+        let lo = _mm_set1_epi8(((b'A' ^ 0x80).wrapping_sub(1)) as i8);
+        let hi = _mm_set1_epi8(((b'Z' ^ 0x80).wrapping_add(1)) as i8);
         let case_bit = _mm_set1_epi8(0x20);
         while i + 16 <= len {
             let v = _mm_loadu_si128(p.cast());
@@ -316,6 +316,7 @@ unsafe fn lowercase_ascii_sse2(buf: &mut [u8]) {
             i += 16;
         }
     }
+
     buf[i..].make_ascii_lowercase();
 }
 

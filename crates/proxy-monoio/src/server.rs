@@ -42,7 +42,8 @@ const IO_BUF_SIZE: usize = 32 * 1024;
 /// runtime rather than to the buffer policy.
 const IO_BUF_INITIAL: usize = 4 * 1024;
 /// Listen backlog per worker socket.
-const LISTEN_BACKLOG: i32 = 16_384;
+const LISTEN_BACKLOG: i32 = 65_535;
+
 /// Requests served on one downstream connection before closing it, so a
 /// long-lived benchmark connection cannot pin resources forever.
 const MAX_REQUESTS_PER_CONNECTION: u32 = 100_000;
@@ -281,7 +282,7 @@ async fn serve_connection(
             }
         };
 
-        let (res, _) = upstream.write_all(head_buf.to_vec()).await;
+        let (res, _) = upstream.write_all(head_buf.split().freeze()).await;
         res?;
 
         // --- relay the request body -------------------------------------
@@ -427,7 +428,7 @@ async fn relay_response(
     let downstream_keep = keep_alive && head.body != BodyLength::UntilClose;
 
     http1::write_return_head(head_buf, &buf[..filled], &head, downstream_keep);
-    let (res, _) = downstream.write_all(head_buf.to_vec()).await;
+    let (res, _) = downstream.write_all(head_buf.split().freeze()).await;
     res?;
 
     let body_start = head.head_len;
@@ -576,7 +577,11 @@ fn grow_for_read(buf: &mut Vec<u8>, filled: usize) {
     if headroom >= IO_BUF_INITIAL {
         return;
     }
-    let target = (buf.len().max(IO_BUF_INITIAL) * 2).min(filled + IO_BUF_SIZE);
+    if buf.len() < IO_BUF_INITIAL {
+        buf.resize(IO_BUF_INITIAL, 0);
+        return;
+    }
+    let target = (buf.len() * 2).min(filled + IO_BUF_SIZE);
     buf.resize(target.max(filled + IO_BUF_INITIAL), 0);
 }
 

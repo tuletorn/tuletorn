@@ -94,17 +94,19 @@ fn main() -> Result<(), anyhow::Error> {
             std::thread::Builder::new()
                 .name(format!("lb-monoio-{worker_id}"))
                 .spawn(move || {
-                    let mut runtime = match monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
+                    let mut runtime = monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
                         .enable_all()
-                        .with_entries(4096)
+                        .with_entries(32768)
                         .build()
-                    {
-                        Ok(rt) => rt,
-                        Err(err) => {
-                            error!(worker = worker_id, %err, "failed to build the Monoio runtime");
-                            return;
-                        }
-                    };
+                        .or_else(|_| {
+                            monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
+                                .enable_all()
+                                .with_entries(16384)
+                                .build()
+                        })
+                        .unwrap_or_else(|err| {
+                            panic!("failed to build the Monoio runtime: {err}");
+                        });
                     runtime.block_on(async move {
                         let proxy = ProxyMonoio::with_config(routes, config);
                         if let Err(err) = proxy.run_worker(worker_id).await {
